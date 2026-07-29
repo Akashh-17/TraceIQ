@@ -1,0 +1,157 @@
+========================================================================
+Phase 6: Redis Caching Layer
+========================================================================
+
+1. Phase Goal
+-------------
+Add Redis as a caching layer in front of PostgreSQL for read-heavy endpoints.
+Implement the Cache-Aside pattern for recent events and dashboard statistics.
+Worker automatically invalidates cache after writing a new event to PostgreSQL.
+
+2. Backend Concepts Learned
+---------------------------
+- Cache: A fast temporary storage layer (Redis RAM) in front of slow permanent storage (PostgreSQL disk).
+- Cache Hit: Requested data found in Redis. Returned in ~0.1ms.
+- Cache Miss: Data not in Redis. Fall back to PostgreSQL, then populate cache.
+- Cache-Aside Pattern: App code manually checks cache, queries DB on miss, populates cache.
+- Cache Invalidation: Delete stale cache keys when underlying data changes.
+- TTL (Time To Live): Redis auto-deletes keys after N seconds. Safety net against stale data.
+- Hot Data: Frequently requested data worth caching (recent events, stats).
+- Cold Data: Rarely requested data not worth caching (single event by ID).
+- In-Memory Database: Redis stores all data in RAM — reads in microseconds vs disk milliseconds.
+- Eventual Consistency: Cached data may be up to 60 seconds stale. Acceptable for audit logs.
+
+3. Request Flow Diagram
+-----------------------
+GET /api/v1/events/recent
+  │
+  ▼ authMiddleware (validates API key, attaches req.tenant)
+  │
+  ▼ EventsController.getRecentEvents()
+  │
+  ├── cacheService.getRecentEvents(tenantId)
+  │       │
+  │       ├── HIT  → return data in 0.1ms (source: cache) ✅
+  │       │
+  │       └── MISS → eventRepository.findRecent(tenantId)
+  │                       │
+  │                       ▼
+  │                  PostgreSQL (~20ms)
+  │                       │
+  │                       ▼
+  │              cacheService.setRecentEvents(tenantId, events, TTL: 60s)
+  │                       │
+  │                       ▼
+  │              return data (source: database)
+
+4. Cache Flow Diagram
+---------------------
+POST /events (new audit event)
+  → BullMQ Queue → Worker → PostgreSQL ✅
+  → cacheService.invalidateTenant(tenantId) → Redis keys deleted
+
+Next GET /events/recent
+  → Cache MISS (key deleted) → PostgreSQL → Re-populate cache ✅
+
+Subsequent GETs (next 60 seconds)
+  → Cache HIT → 0.1ms each ✅
+
+TTL expires (60 seconds)
+  → Redis auto-deletes key → Next GET triggers cache miss → Repopulated
+
+5. Architecture Before vs After
+--------------------------------
+Before (Phase 5):
+  GET /recent → Controller → Repository → PostgreSQL (every request hits DB)
+
+After (Phase 6):
+  GET /recent → Controller → Redis (HIT: 0.1ms) 
+                                  ↓ (MISS only)
+                             Repository → PostgreSQL → Cache populated
+
+6. Files Created
+----------------
+- src/config/redis.ts          — ioredis client singleton for the cache layer
+- src/services/cache.service.ts — Centralized cache operations with typed methods
+
+7. Files Modified
+-----------------
+- src/models/event.repository.ts    — Added findRecent() and getStats() methods
+- src/controllers/events.controller.ts — Added getRecentEvents() and getStats() with Cache-Aside
+- src/workers/events.worker.ts      — Added cache invalidation after successful DB write
+- src/routes/events.route.ts        — Added GET /recent and GET /stats routes
+
+8. Responsibility of Every File
+-------------------------------
+redis.ts: Creates one shared ioredis connection for caching. Separate from BullMQ's connection.
+          If Redis goes down, logs an error but doesn't crash the app.
+
+cache.service.ts: The ONLY place that knows cache key names and TTL values.
+                  get/set/invalidate methods for each type of cacheable data.
+                  Does not touch PostgreSQL — callers handle DB fallback.
+
+event.repository.ts (additions):
+  findRecent()  → SELECT last 25 events by tenant. Called on cache miss.
+  getStats()    → Runs 5 parallel COUNT/GROUP BY queries. Expensive — hence cached.
+
+events.controller.ts (additions):
+  getRecentEvents() → Cache-Aside: Redis → PostgreSQL fallback → re-populate → return.
+  getStats()        → Same pattern for aggregated dashboard stats.
+
+events.worker.ts (addition):
+  After writing to PostgreSQL → invalidates tenant's cache keys.
+  Forces the next dashboard read to fetch fresh data.
+
+events.route.ts (additions):
+  GET /api/v1/events/recent → getRecentEvents (with authMiddleware)
+  GET /api/v1/events/stats  → getStats (with authMiddleware)
+
+9. Top Interview Questions
+--------------------------
+Q: What is the Cache-Aside pattern?
+A: The app checks the cache first. On a miss, it queries the DB and manually populates
+   the cache. On the next request, it hits the cache. The app controls the logic.
+
+Q: What is cache invalidation and why is it hard?
+A: It's removing stale cached data when the source data changes. Hard because:
+   you must coordinate two systems (cache + DB), handle partial failures,
+   and avoid both serving stale data AND invalidating too aggressively.
+
+Q: What is TTL and why do we use it even with invalidation?
+A: TTL (Time To Live) is the auto-expiry time for a cache key.
+   We use it as a safety net: even if invalidation fails for any reason,
+   the cache will self-heal within 60 seconds. Defense in depth.
+
+Q: Why not cache everything?
+A: Memory is limited. Stale data can cause bugs. Some data is cold (rarely requested)
+   so caching it gives no benefit but wastes memory. Cache only hot, stable, shared data.
+
+Q: What is the difference between Redis for BullMQ and Redis for caching?
+A: Same physical server, different logical purpose and key namespaces.
+   BullMQ keys (bull:*) = jobs to be processed (temporary work items).
+   Cache keys (traceiq:cache:*) = computed query results (disposable copies).
+
+Q: If Redis goes down, what happens to our app?
+A: Every cache read returns a miss. Every request falls through to PostgreSQL.
+   The app becomes slow but stays correct. Redis failure is non-fatal by design.
+
+10. Five Minute Revision Notes
+-------------------------------
+- Phase 6 adds a Redis cache between the API and PostgreSQL.
+- Pattern: Cache-Aside (check Redis → miss → query DB → populate cache).
+- Two new endpoints: GET /events/recent and GET /events/stats.
+- Worker invalidates cache after every successful DB write.
+- TTL = 60 seconds (safety net, auto-expiry even if invalidation fails).
+- Cache keys are tenant-scoped: traceiq:cache:{type}:{tenantId}.
+- Response includes { meta: { source: 'cache' | 'database' } } for observability.
+- Redis for BullMQ and Redis for cache = same server, different key prefixes.
+
+11. Common Mistakes Beginners Make
+------------------------------------
+- Caching everything: Wastes memory. Cache only hot data that's read often and changes rarely.
+- Not including tenantId in cache keys: FinStack's cache bleeds into MedVault's. Data leak.
+- No TTL: Cache grows forever, serves stale data if invalidation ever fails.
+- Not invalidating on write: Users see old data after new events arrive. Silent bug.
+- Crashing on Redis failure: Redis should be optional. Log the error, fall through to DB.
+- Storing sensitive data in cache: Redis in-memory, less access-controlled than PostgreSQL.
+- Forgetting the 'meta: source' field: Makes debugging nearly impossible in production.

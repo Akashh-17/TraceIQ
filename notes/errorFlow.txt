@@ -1,0 +1,29 @@
+Client Request
+      │
+      ▼
+Express Route
+      │
+      ▼
+Something goes wrong
+      │
+      ▼
+next(new AppError("User not found", 404))
+      │
+      ▼
+Express skips normal middleware
+      │
+      ▼
+globalErrorHandler(err, req, res, next)
+      │
+      ├── Is it an AppError?
+      │       │
+      │       ├── Yes → Use its statusCode and isOperational
+      │       └── No  → Use statusCode = 500, isOperational = false
+      │
+      ├── Log it only if it's unexpected
+      │
+      └── Send JSON response
+              │
+              ├── success: false
+              ├── message: err.message
+              └── stack (development only)

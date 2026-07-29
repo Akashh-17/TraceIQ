@@ -1,0 +1,109 @@
+================================================================================
+PHASE 2 — EXPRESS API FOUNDATION
+================================================================================
+
+WHAT WAS Built
+--------------
+A working HTTP API that accepts audit events via POST /api/v1/events,
+validates the request body, and returns a structured JSON response.
+No database yet — events were generated in-memory with a random UUID.
+
+FILES CREATED
+-------------
+  src/app.ts                     — Express app setup, middleware, routes
+  src/config/env.ts              — Typed env loader (crashes early if vars missing)
+  src/controllers/              
+    events.controller.ts         — Handles HTTP: validate → call service → respond
+  src/services/
+    events.service.ts            — Business logic (creates event_id, no DB yet)
+  src/routes/
+    events.route.ts              — Maps POST / → eventsController.ingestEvent
+  src/types/
+    event.types.ts               — Zod schema + inferred TypeScript type
+    common.types.ts              — Shared ApiResponse<T> shape
+  src/middlewares/
+    errorHandler.ts              — AppError class + global error handler
+
+KEY CONCEPTS TO REMEMBER
+-------------------------
+
+1. CONTROLLER → SERVICE pattern
+   Think of it like a restaurant:
+   - Controller = Waiter    (takes order from customer, brings food back)
+   - Service    = Chef      (does the actual cooking — business logic)
+   - Controller NEVER cooks. Service NEVER talks to the customer.
+
+   Why split? Because in Phase 6 the service will push to a queue instead of
+   writing to DB. The controller code won't change at all.
+
+2. ZOD VALIDATION
+   Zod does two jobs at once:
+   a) Runtime: rejects bad requests before they hit your service
+   b) Compile-time: z.infer<typeof Schema> gives you a TypeScript type for free
+   You never write a separate interface — Zod generates it.
+
+   CreateEventSchema.safeParse(req.body)
+   → success: true  → result.data is typed and safe
+   → success: false → result.error tells you exactly which field failed
+
+3. AppError vs regular Error
+   Regular JS Error: has message, name, stack. No HTTP concept.
+   AppError extends Error and adds:
+   - statusCode → which HTTP code to send (404, 400, 500...)
+   - isOperational → was this expected? (wrong password = yes, DB crash = no)
+
+   Unexpected errors get logged loudly. Operational errors just get a clean response.
+
+4. WHY 202 AND NOT 201
+   201 = "Resource created RIGHT NOW"
+   202 = "Request accepted, will be processed"
+   Since Phase 6 will queue the event (async), nothing is created immediately.
+   202 is the honest answer. We set it now so Phase 6 needs zero changes here.
+
+5. env.ts pattern
+   requireEnv("KEY") crashes the app at startup if a variable is missing.
+   This is intentional — better to crash immediately with a clear message
+   than to fail silently 3 hours later on a production request.
+
+
+FLOW AT END OF PHASE 2
+-----------------------
+
+  Client (Postman / frontend)
+        │
+        │  POST /api/v1/events
+        │  Body: { actor, action, resource_type, resource_id, source_service }
+        ▼
+  app.ts — express.json() parses the body
+        │
+        ▼
+  events.route.ts — matches POST /api/v1/events → eventsController.ingestEvent
+        │
+        ▼
+  EventsController.ingestEvent()
+        │
+        ├── CreateEventSchema.safeParse(req.body)
+        │       │
+        │       ├── FAIL → res.status(400).json({ errors: [...] })
+        │       │
+        │       └── PASS ──────────────────────────────────────────┐
+        │                                                           │
+        ▼                                                           ▼
+  EventsService.createEvent(dto, tenantId)
+        │
+        │  (Phase 2: just generates a random UUID, no DB)
+        │
+        └── returns { event_id: "abc-123" }
+                │
+                ▼
+  Controller → res.status(202).json({ success: true, data: { event_id } })
+                │
+                ▼
+  Client receives response
+
+  If anything throws anywhere:
+        │
+        ▼
+  next(err) → globalErrorHandler → res.status(500).json({ success: false, message })
+
+================================================================================

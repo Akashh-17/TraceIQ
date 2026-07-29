@@ -1,0 +1,163 @@
+================================================================================
+PHASE 3 — DATABASE LAYER (Prisma + PostgreSQL)
+================================================================================
+
+WHAT WAS BUILT
+--------------
+Replaced the in-memory UUID generation with real PostgreSQL writes via Prisma.
+Events now persist. Tenants exist as a real DB entity that owns events.
+Also added sourceService field to AuditEvent (tracks which service sent the event).
+
+FILES CREATED / CHANGED
+------------------------
+  prisma/schema.prisma           — Source of truth for DB tables and columns
+  prisma.config.ts               — Prisma v7: DB URL lives here, not in schema
+  prisma/migrations/             — Auto-generated SQL files for each schema change
+  src/config/prisma.ts           — Singleton Prisma client (one DB connection pool)
+  src/models/
+    tenant.repository.ts         — DB access for Tenant table
+    event.repository.ts          — DB access for AuditEvent table
+  src/services/events.service.ts — Updated: now calls eventRepository.create()
+  src/types/event.types.ts       — Updated: added source_service to Zod schema
+  src/config/env.ts              — Updated: added devTenantId, removed future vars
+
+DATABASE TABLES
+---------------
+  tenants
+    id          UUID  (primary key, auto-generated)
+    name        TEXT
+    apiKey      TEXT  (unique — used in Phase 4 for auth)
+    createdAt   TIMESTAMP
+    updatedAt   TIMESTAMP
+
+  audit_events
+    id            UUID  (primary key)
+    tenantId      UUID  (foreign key → tenants.id)
+    actor         TEXT  (who did it — email)
+    action        TEXT  (what — UPPERCASE_WITH_UNDERSCORES)
+    resourceType  TEXT  (what type — "transaction", "user")
+    resourceId    TEXT  (which one — "txn_123")
+    sourceService TEXT  (which service sent this — "AUTH_SERVICE")
+    metadata      JSONB (optional extra context)
+    createdAt     TIMESTAMP
+
+KEY CONCEPTS TO REMEMBER
+-------------------------
+
+1. REPOSITORY PATTERN (the missing piece from Phase 2)
+   Phase 2: Controller → Service → (nothing, just randomUUID())
+   Phase 3: Controller → Service → Repository → Prisma → PostgreSQL
+
+   Repository = the only file that talks to the database.
+   Think of it as the "storage clerk". The service says "store this event",
+   the repository figures out HOW (SQL, ORM, etc).
+
+   Why not just call Prisma directly from the service?
+   - If you swap Prisma for raw SQL tomorrow, you change ONE file (the repository).
+   - The service doesn't care. The controller doesn't care.
+   - It also makes unit testing easy — mock the repository, skip the real DB.
+
+2. SINGLETON PRISMA CLIENT
+   src/config/prisma.ts exports ONE shared PrismaClient instance.
+   Every repository imports that same object.
+   Why? Because each PrismaClient opens a database connection pool.
+   Creating many clients = wasting connections = slower app.
+   One client shared everywhere = correct.
+
+3. PRISMA v7 QUIRK
+   In Prisma v7, the database URL is NOT in schema.prisma.
+   It lives in prisma.config.ts at the project root.
+   The schema.prisma datasource block has NO url field — Prisma reads it from the config.
+
+4. MIGRATIONS
+   When you change schema.prisma:
+     npx prisma migrate dev --name describe_your_change
+   This does THREE things:
+   a) Generates a SQL file in prisma/migrations/
+   b) Runs that SQL against your DB
+   c) Re-generates the Prisma client (TypeScript types update automatically)
+
+   Never edit the DB manually. Always go through migrations.
+   This way the migration folder is a complete history of every DB change ever made.
+
+5. MULTI-TENANCY (tenantId everywhere)
+   Every audit_event row has a tenantId.
+   Every query filters by tenantId FIRST.
+   This ensures Company A can never see Company B's events,
+   even if they somehow got Company B's event ID.
+   This is enforced at the repository level — it's never optional.
+
+6. IMMUTABILITY RULE
+   AuditEvents have NO updatedAt field. On purpose.
+   An audit log is a permanent record. You never edit history.
+   Once written → never changed. Prisma won't even offer an `.update()` path
+   if you design it this way.
+
+7. devTenantId (temporary placeholder)
+   Phase 3 has no auth yet. So where does tenantId come from?
+   We seed a test tenant in the DB and put its ID in .env as DEV_TENANT_ID.
+   The controller reads env.devTenantId and passes it to the service.
+   The SERVICE doesn't read env — the controller does, then passes it in.
+   Phase 4 replaces this one line: env.devTenantId → req.tenantId
+
+
+FLOW AT END OF PHASE 3
+-----------------------
+
+  Client
+        │
+        │  POST /api/v1/events
+        │  { actor, action, resource_type, resource_id, source_service, metadata? }
+        ▼
+  Express (app.ts) → json parser → events.route.ts
+        │
+        ▼
+  EventsController.ingestEvent()
+        │
+        ├── Zod validates body
+        │       └── FAIL → 400 + field errors
+        │
+        ├── tenantId = env.devTenantId   ← Phase 4: this becomes req.tenantId
+        │
+        └── eventsService.createEvent(dto, tenantId)
+                │
+                ▼
+          EventsService.createEvent()
+                │  (no business logic yet, just orchestrates)
+                │
+                └── eventRepository.create({ tenantId, actor, action, ... })
+                        │
+                        ▼
+                  PrismaClient.auditEvent.create({ data: {...} })
+                        │
+                        ▼
+                  PostgreSQL — INSERT INTO audit_events (...)
+                        │
+                        └── returns full row including auto-generated id
+                                │
+                                ▼
+                  repository returns AuditEvent row
+                        │
+                        ▼
+                  service returns { event_id: row.id }
+                        │
+                        ▼
+                  controller → res.202.json({ success: true, data: { event_id } })
+
+  Database state after Phase 3:
+
+    tenants table:
+    ┌──────────────────────────────────────┬──────────────┬──────────────────────┐
+    │ id (UUID)                            │ name         │ apiKey               │
+    ├──────────────────────────────────────┼──────────────┼──────────────────────┤
+    │ <dev-uuid-from-.env>                 │ Dev Tenant   │ tk_dev_...           │
+    └──────────────────────────────────────┴──────────────┴──────────────────────┘
+
+    audit_events table:
+    ┌──────────┬──────────┬────────────────────────┬──────────────────┬──────────────┐
+    │ id       │ tenantId │ actor                  │ action           │ sourceService│
+    ├──────────┼──────────┼────────────────────────┼──────────────────┼──────────────┤
+    │ uuid-1   │ dev-uuid │ admin@company.com       │ USER_CREATED     │ AUTH_SERVICE │
+    └──────────┴──────────┴────────────────────────┴──────────────────┴──────────────┘
+
+================================================================================

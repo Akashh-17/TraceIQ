@@ -1,0 +1,87 @@
+========================================================================
+Phase 4: Machine-to-Machine (M2M) Authentication
+========================================================================
+
+1. Phase Goal
+-------------
+To secure the /api/v1/events endpoint so that only legitimate backend services (like FinStack's Payments Service) can send audit events. We replaced a hardcoded environment variable with a robust API Key validation system.
+
+2. Important Backend Concepts
+-----------------------------
+- API Keys: A secret, permanent string used by servers to prove their identity without needing a human to type a password or manage expiring JWTs.
+- Authentication vs Authorization: 
+  AuthN = "Who are you?" (Are you FinStack?)
+  AuthZ = "What can you do?" (Can you delete this event?)
+- Express Middleware: Functions that run before the controller. They act as "Bouncers" that can inspect, modify, or reject requests early.
+- Request Augmentation: Modifying the `req` object (e.g., `req.tenant = tenant`) so that middleware can pass data down to the controller.
+
+3. Request Flow Diagram
+-----------------------
+Client (Payments Service)
+  │ POST /events with "Bearer tk_live_finstack_999"
+  ▼
+authMiddleware ("The Bouncer")
+  ├── Check header format. (Missing? 401)
+  ├── Extract API key.
+  ├── tenantRepository.findByApiKey(key) (Not found? 401)
+  └── Success! req.tenant = FinStack
+  │
+  ▼
+EventsController ("The Waiter")
+  ├── Validates body using Zod.
+  ├── Grabs tenantId: req.tenant.id
+  └── Passes data + tenantId to Service.
+  │
+  ▼
+EventsService & EventRepository
+  └── Saves event mapped securely to FinStack in PostgreSQL.
+
+4. Architecture Changes
+-----------------------
+We introduced the "Middleware Layer" to our architecture. The Controller no longer guesses the tenant. It strictly relies on the Middleware to verify identity. The Service remains completely unaware of HTTP mechanics.
+
+5. Files Created
+----------------
+- src/middlewares/auth.middleware.ts
+- src/types/express.d.ts
+
+6. Files Modified
+-----------------
+- src/routes/events.route.ts
+- src/controllers/events.controller.ts
+- src/config/env.ts & .env
+- prisma/seed.ts
+
+7. Responsibility of Every File
+-------------------------------
+- express.d.ts: Tells TypeScript that we are adding a custom `tenant` property to the standard Express `Request` object.
+- auth.middleware.ts: The security checkpoint. Reads the header, queries the DB, rejects bad keys, and attaches good tenants to `req`.
+- events.route.ts: The map. We updated it to insert `authMiddleware` directly in front of the controller.
+- events.controller.ts: Updated to extract the tenant ID directly from `req.tenant.id` instead of a fake environment variable.
+- seed.ts: Populated our database with real FinStack and MedVault keys so we had something to test against.
+
+8. Top Interview Questions
+--------------------------
+Q: Why use API Keys instead of JWT for backend services?
+A: JWT requires a login flow and handling expiration/refreshes. Backend services don't have humans to "log in." API keys are permanent and simpler for machine-to-machine communication.
+
+Q: Why shouldn't the Service layer read the Authorization header?
+A: Separation of Concerns. The Service layer contains pure business logic. If it reads HTTP headers, you can't reuse it (e.g., running the service from a cron job or a message queue where headers don't exist).
+
+Q: How do you pass data from middleware to the controller in Express?
+A: By attaching it to the `req` or `res.locals` object (e.g., `req.tenant = tenant`). You also must augment the Express types if using TypeScript.
+
+9. 5-Minute Revision Notes
+--------------------------
+- Authentication answers "Who are you?"
+- M2M Auth uses API keys in the `Authorization: Bearer <key>` header.
+- Middleware intercepts requests to perform checks. If it throws a 401, the controller never runs.
+- TypeScript needs an `.d.ts` declaration file if you modify the Express Request object.
+- Controllers read from `req.tenant`, Services just accept string IDs as parameters.
+
+10. Common Mistakes Beginners Make
+----------------------------------
+- Checking the API key inside the Controller: This leads to massive code duplication when you have 50 protected routes. Always use Middleware.
+- Forgetting to prefix the key with "Bearer ": The industry standard is `Authorization: Bearer <token>`.
+- Using `any` in TypeScript: Beginners often type `(req as any).tenant` instead of properly extending `express.d.ts`.
+- Putting business logic in Middleware: Middleware should only verify identity. It shouldn't validate the event data or save things to the database.

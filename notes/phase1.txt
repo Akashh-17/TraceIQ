@@ -1,0 +1,1871 @@
+# Backend Development Notes — Phase 1
+# Project: Multi-Tenant Event-Driven Audit Log Service
+# Stack: TypeScript + Node.js + Express + PostgreSQL
+
+---
+
+# TABLE OF CONTENTS
+
+1. Backend Basics
+2. HTTP Fundamentals
+3. REST API Fundamentals
+4. Express.js Basics
+5. Express Middleware
+6. Request & Response Objects
+7. Error Handling
+8. TypeScript Concepts Used
+9. Environment Configuration
+10. Node.js Fundamentals
+11. JSON & API Responses
+12. Project Structure
+13. Backend Design Concepts
+
+---
+
+# 1. BACKEND BASICS
+
+## What is Backend?
+
+Backend is the part of an application that runs on a SERVER — not in the user's browser.
+It handles:
+- Business logic (rules of your application)
+- Database read/write
+- Authentication and authorization
+- Processing and returning data to whoever asked for it
+
+Think of a restaurant:
+- Frontend = the menu and the dining area (what the customer sees)
+- Backend = the kitchen (where the actual work happens, customer never sees it)
+
+## Client-Server Architecture
+
+A CLIENT is anything that makes a request — browser, mobile app, another server, Postman.
+A SERVER is a program that listens for requests and sends back responses.
+
+```
+CLIENT                          SERVER
+------                          ------
+(Browser / App / Postman)       (Your Express App)
+
+        ------- REQUEST ------->
+        <------ RESPONSE -------
+```
+
+The server does NOT initiate communication. It just listens and responds.
+The client always starts the conversation.
+
+In our project:
+- Client = FinStack's internal services (Auth Service, Payments Service)
+- Server = Our Audit Log Service running on some port (e.g. 3000)
+
+## Request-Response Cycle
+
+This is the fundamental cycle of all web communication.
+
+```
+1. Client sends a REQUEST
+        |
+        v
+2. Server RECEIVES the request
+        |
+        v
+3. Server PROCESSES it (validates, queries DB, applies logic)
+        |
+        v
+4. Server sends back a RESPONSE
+        |
+        v
+5. Client RECEIVES the response and does something with it
+```
+
+Every single API call you make follows this cycle. There is no exception.
+
+---
+
+# 2. HTTP FUNDAMENTALS
+
+## What is HTTP?
+
+HTTP = HyperText Transfer Protocol.
+
+It is the set of RULES that defines how a client and server communicate.
+Think of it as the language both sides agree to speak.
+
+When you open a browser and visit google.com:
+- Your browser speaks HTTP to Google's server
+- Google's server speaks HTTP back to your browser
+
+Our Audit Log API also uses HTTP — any service that wants to send us events
+must follow HTTP rules.
+
+## HTTP Request
+
+An HTTP Request has these parts:
+
+```
+METHOD   URL                         HTTP VERSION
+POST     /api/v1/events              HTTP/1.1
+
+HEADERS (metadata about the request)
+Content-Type: application/json
+Authorization: Bearer abc123
+
+BODY (the actual data being sent — only in POST, PUT, PATCH)
+{
+  "actor": "rahul@finstack.com",
+  "action": "TRANSACTION_APPROVED"
+}
+```
+
+- METHOD = what action to perform
+- URL = which resource to perform it on
+- HEADERS = extra information (auth token, content type, etc.)
+- BODY = data being sent (not all requests have a body)
+
+## HTTP Response
+
+An HTTP Response has these parts:
+
+```
+HTTP VERSION   STATUS CODE   STATUS MESSAGE
+HTTP/1.1       200           OK
+
+HEADERS (metadata about the response)
+Content-Type: application/json
+
+BODY (the actual data being returned)
+{
+  "success": true,
+  "data": { "event_id": "uuid-123" }
+}
+```
+
+## HTTP Methods
+
+Methods tell the server WHAT you want to do with a resource.
+
+GET
+- Fetch/read data
+- No body
+- Example: GET /api/v1/events — fetch list of audit events
+- Safe (does not change anything on the server)
+
+POST
+- Create a new resource
+- Has a body with the new data
+- Example: POST /api/v1/events — create a new audit event
+- NOT safe (changes server state)
+
+PUT
+- Replace an existing resource completely
+- Has a body with the full updated data
+- Example: PUT /api/v1/tenants/123 — replace entire tenant record
+
+PATCH
+- Update part of an existing resource
+- Has a body with ONLY the fields being changed
+- Example: PATCH /api/v1/tenants/123 — update just the tenant's name
+
+DELETE
+- Remove a resource
+- Usually no body
+- Example: DELETE /api/v1/tenants/123 — delete a tenant
+
+Rule of thumb:
+- Fetching something? GET
+- Creating something new? POST
+- Updating everything about something? PUT
+- Updating one field? PATCH
+- Removing something? DELETE
+
+## HTTP Status Codes
+
+Status codes tell the client what happened on the server side.
+They are 3-digit numbers grouped by their first digit.
+
+### 2xx — Success
+
+200 OK
+- Standard success for GET, PUT, PATCH, DELETE
+- Request worked, here is your response
+
+201 Created
+- Used when a new resource was successfully CREATED
+- Should be returned after a successful POST
+
+202 Accepted
+- Request received and will be processed, but not done yet
+- We use this in our project for event ingestion — we queue the event
+  and return 202 immediately without waiting for DB write
+
+204 No Content
+- Success, but nothing to return in the body
+- Common for DELETE operations
+
+### 3xx — Redirection
+
+301 Moved Permanently
+- The URL has changed permanently, go to the new one
+
+302 Found (Temporary Redirect)
+- Temporarily go to a different URL
+
+You won't use 3xx much in API development. They're more for browsers.
+
+### 4xx — Client Errors (the CLIENT did something wrong)
+
+400 Bad Request
+- The request is malformed — missing fields, wrong data types
+- In our project: Zod validation fails → 400
+
+401 Unauthorized
+- Authentication failed or missing
+- Client is not identified
+- In our project: missing or invalid API key → 401
+- Despite saying "unauthorized", this is actually about AUTHENTICATION
+
+403 Forbidden
+- Authentication succeeded, but the client does NOT have permission
+- Client is identified but not allowed to do this
+- In our project: INGEST_ONLY tenant trying to query events → 403
+- This is about AUTHORIZATION
+
+404 Not Found
+- The requested resource does not exist
+- Example: GET /api/v1/events/nonexistent-id
+
+422 Unprocessable Entity
+- Server understands the request, but the data is semantically wrong
+- Some teams use 422 for validation errors instead of 400
+
+429 Too Many Requests
+- Rate limit exceeded
+- We'll use this in Phase 10 for the AI query endpoint
+
+### 5xx — Server Errors (the SERVER did something wrong)
+
+500 Internal Server Error
+- Something crashed on the server — unhandled exception, bug in code
+- The client did everything right, but we messed up
+
+502 Bad Gateway
+- Server got an invalid response from another server it was talking to
+
+503 Service Unavailable
+- Server is down for maintenance or overloaded
+
+Key rule: 4xx = client's fault. 5xx = server's fault.
+
+---
+
+# 3. REST API FUNDAMENTALS
+
+## What is an API?
+
+API = Application Programming Interface.
+
+It is a way for two programs to communicate with each other.
+In backend, it specifically means: a set of endpoints that clients can call
+to interact with your system.
+
+Our Audit Log Service IS an API. Other services (like FinStack's Auth Service)
+call our API to log events.
+
+## What is an Endpoint?
+
+An endpoint is a specific URL + method combination that does one thing.
+
+Examples from our project:
+- POST   /api/v1/events           → ingest a new audit event
+- GET    /api/v1/events           → query audit events with filters
+- GET    /api/v1/events/recent    → get recent events from cache
+- GET    /api/v1/events/export    → download CSV export
+- POST   /api/v1/events/query/natural → AI natural language query
+
+Each endpoint = one specific capability of your service.
+
+## What is a Route?
+
+A route is how you define an endpoint in Express code.
+
+```typescript
+// This is a route definition
+router.post('/events', authMiddleware, eventsController.ingestEvent);
+
+// METHOD  PATH      MIDDLEWARES    HANDLER
+```
+
+Routes map incoming requests to the right handler function.
+
+## RESTful API Naming Conventions
+
+REST = Representational State Transfer. It is an architectural style, not a rule.
+Following REST conventions makes your API predictable and easy to understand.
+
+Rules:
+
+1. Use NOUNS for resource names, not verbs
+   GOOD: /api/v1/events
+   BAD:  /api/v1/getEvents or /api/v1/fetchEvents
+
+2. Use PLURAL for collections
+   GOOD: /api/v1/events
+   BAD:  /api/v1/event
+
+3. Hierarchy shows relationships
+   /api/v1/tenants/123/events → events belonging to tenant 123
+
+4. Use HTTP methods to express the action, not the URL
+   GOOD: DELETE /api/v1/events/123
+   BAD:  POST /api/v1/deleteEvent/123
+
+5. Versioning in the URL
+   /api/v1/events → v1 of your API
+   Later: /api/v2/events → v2 with breaking changes
+   Old clients can still use v1 while new clients use v2
+
+## Resource-based URLs
+
+URL structure: /api/version/resource/id/sub-resource
+
+Examples:
+```
+GET    /api/v1/tenants              → list all tenants
+POST   /api/v1/tenants              → create a tenant
+GET    /api/v1/tenants/:id          → get one tenant
+PUT    /api/v1/tenants/:id          → update a tenant
+DELETE /api/v1/tenants/:id          → delete a tenant
+
+GET    /api/v1/events               → list events (filtered)
+POST   /api/v1/events               → create an event
+GET    /api/v1/events/:id           → get one specific event
+GET    /api/v1/events/recent        → special: recent events from cache
+GET    /api/v1/events/export        → special: download as CSV
+```
+
+---
+
+# 4. EXPRESS.JS BASICS
+
+## Express Application — express()
+
+Express is a web framework for Node.js. It makes building HTTP servers easier.
+
+```typescript
+import express from 'express';
+
+const app = express();
+// app is now your entire web application
+```
+
+express() creates and returns an application object.
+Everything you do in Express is through this app object or routers attached to it.
+
+## Application Object — app
+
+The app object has methods for:
+- Registering middleware: app.use()
+- Registering route handlers: app.get(), app.post(), etc.
+- Starting the server: app.listen()
+- Configuring settings: app.set()
+
+```typescript
+const app = express();
+
+// Register middleware that runs on EVERY request
+app.use(express.json());
+
+// Register a route
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Start listening on a port
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+```
+
+## Router — Router()
+
+A Router is a mini Express application. It handles a subset of routes.
+Instead of putting ALL routes in app.ts, you create separate router files
+for each resource.
+
+Why? Separation of concerns. If you have 50 endpoints, one file is chaos.
+
+```typescript
+// src/routes/events.route.ts
+import { Router } from 'express';
+
+const router = Router();
+
+router.post('/', eventsController.ingestEvent);
+router.get('/', eventsController.queryEvents);
+router.get('/recent', eventsController.getRecentEvents);
+
+export default router;
+```
+
+This router ONLY knows about event-related routes.
+It doesn't know it will be mounted at /api/v1/events — that's app.ts's job.
+
+## Route Registration
+
+Routes are registered on either the app object directly or on a Router.
+
+```typescript
+// On app directly (simple projects)
+app.get('/health', handler);
+app.post('/events', handler);
+
+// On a Router (recommended for real projects)
+router.get('/', handler);   // relative to wherever router is mounted
+router.post('/', handler);
+router.get('/:id', handler); // :id is a route param
+```
+
+## Router Mounting — app.use()
+
+Mounting connects a Router to the main app at a specific base path.
+
+```typescript
+// src/app.ts
+import eventsRouter from './routes/events.route';
+import tenantsRouter from './routes/tenants.route';
+
+app.use('/api/v1/events', eventsRouter);
+app.use('/api/v1/tenants', tenantsRouter);
+```
+
+Now:
+- eventsRouter's route `/` becomes `/api/v1/events/`
+- eventsRouter's route `/:id` becomes `/api/v1/events/:id`
+- eventsRouter's route `/recent` becomes `/api/v1/events/recent`
+
+The router itself doesn't know the full path. app.ts controls where it's mounted.
+This is the separation that makes routers reusable.
+
+## Route Handler
+
+A route handler is the function that runs when a specific route is matched.
+
+```typescript
+// Inline handler (fine for simple routes like health check)
+app.get('/health', (req: Request, res: Response) => {
+  res.json({ status: 'ok' });
+});
+
+// Named handler from a controller (recommended for real routes)
+router.post('/', eventsController.ingestEvent);
+// eventsController.ingestEvent is a function (req, res, next) => void
+```
+
+Handler signature in TypeScript:
+```typescript
+(req: Request, res: Response, next: NextFunction) => void
+```
+
+---
+
+# 5. EXPRESS MIDDLEWARE
+
+## What is Middleware?
+
+Middleware is a function that runs BETWEEN receiving the request and sending the response.
+It sits in the MIDDLE of the request-response cycle.
+
+Every middleware function receives (req, res, next).
+- req = the incoming request object
+- res = the outgoing response object
+- next = a function to call to pass control to the NEXT middleware
+
+```
+REQUEST
+   |
+   v
+Middleware 1 (e.g. parse JSON body)
+   |
+   v
+Middleware 2 (e.g. check API key)
+   |
+   v
+Middleware 3 (e.g. check role/permission)
+   |
+   v
+Route Handler (controller — does the actual work)
+   |
+   v
+RESPONSE
+```
+
+If any middleware calls res.json() or res.send(), the chain STOPS there.
+No further middleware or handler runs.
+If middleware calls next(), the chain CONTINUES to the next function.
+
+## Middleware Execution Order
+
+ORDER MATTERS CRITICALLY in Express.
+
+Express runs middleware in the order you register it with app.use() or router.use().
+
+```typescript
+app.use(express.json());          // 1st — runs on every request
+app.use(loggerMiddleware);        // 2nd — runs on every request
+app.use('/api/v1', apiRouter);    // 3rd — only for /api/v1/* routes
+app.use(notFoundMiddleware);      // 4th — only if no route matched
+app.use(globalErrorMiddleware);   // 5th — only if an error was passed to next()
+```
+
+If you put globalErrorMiddleware before the routes, errors from routes won't reach it.
+If you put express.json() after a route that reads req.body, the body will be undefined.
+
+## Built-in Middleware
+
+Express comes with some middleware built in.
+
+express.json()
+- Parses incoming requests with JSON bodies
+- Populates req.body with the parsed JavaScript object
+- Without this: req.body is undefined even if client sends JSON
+- Must be registered BEFORE any route that reads req.body
+
+```typescript
+app.use(express.json());
+// Now req.body works for JSON requests
+```
+
+express.urlencoded()
+- Parses form data (application/x-www-form-urlencoded)
+- We don't need this much in REST APIs — mainly for HTML form submissions
+- { extended: true } allows nested objects in form data
+
+```typescript
+app.use(express.urlencoded({ extended: true }));
+```
+
+## next()
+
+Calling next() passes control to the NEXT middleware or route handler in the chain.
+
+```typescript
+const loggerMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  console.log(`${req.method} ${req.originalUrl}`);
+  next(); // MUST call this or the request hangs forever
+};
+```
+
+If you forget next(), the client will wait forever and eventually time out.
+The request just hangs — no response is sent.
+
+## next(error)
+
+Passing an argument to next() signals that an ERROR occurred.
+Express will skip all remaining regular middleware and jump directly to
+the Global Error Middleware.
+
+```typescript
+const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const apiKey = req.headers.authorization;
+
+  if (!apiKey) {
+    // Pass an error — skips everything and goes to error handler
+    next(new AppError('Missing API key', 401));
+    return; // IMPORTANT: return after calling next() with error
+  }
+
+  next(); // No error, continue normally
+};
+```
+
+The difference:
+- next()         = "everything is fine, continue to next middleware"
+- next(someError) = "something went wrong, jump to error handler"
+
+## 404 Middleware
+
+If no route matches the incoming request, Express doesn't automatically
+return a 404. You have to handle it yourself.
+
+Register a catch-all middleware AFTER all your routes:
+
+```typescript
+// After all routes in app.ts
+app.use((req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.method} ${req.originalUrl} not found`
+  });
+});
+```
+
+This runs only when no previous route/middleware has sent a response.
+
+## Global Error Middleware
+
+This is the special middleware that catches ALL errors passed via next(error).
+
+It has a unique signature — 4 parameters instead of 3.
+Express identifies error-handling middleware by the 4-parameter signature.
+
+```typescript
+// MUST be the LAST app.use() in app.ts
+// MUST have exactly 4 parameters — (err, req, res, next)
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error'
+  });
+});
+```
+
+Why must it be last?
+Because Express processes middleware in order. If it's before your routes,
+errors from routes won't reach it — they'd have to travel BACKWARDS up the chain,
+which doesn't happen. Express only goes forward.
+
+---
+
+# 6. REQUEST & RESPONSE OBJECTS
+
+## Request (req)
+
+The req object represents the incoming HTTP request.
+Express creates and populates this object for every incoming request.
+
+req.method
+- The HTTP method of the request
+- Type: string
+- Values: 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'
+
+```typescript
+console.log(req.method); // 'POST'
+```
+
+req.originalUrl
+- The full URL path including query string
+- Type: string
+
+```typescript
+console.log(req.originalUrl); // '/api/v1/events?actor=rahul'
+```
+
+req.params
+- Route parameters extracted from the URL
+- These are the :id style segments in your route definition
+
+```typescript
+// Route defined as: router.get('/:id', handler)
+// Request URL: GET /api/v1/events/event-uuid-123
+
+console.log(req.params.id); // 'event-uuid-123'
+```
+
+req.query
+- Query string parameters from the URL
+- Everything after the ? in the URL
+
+```typescript
+// Request URL: GET /api/v1/events?actor=rahul&limit=10
+
+console.log(req.query.actor); // 'rahul'
+console.log(req.query.limit); // '10' (always a string, even if looks like a number)
+```
+
+req.body
+- The parsed JSON body of the request
+- Only populated after express.json() middleware runs
+- Type is 'any' by default — we use Zod to validate and type it
+
+```typescript
+// POST /api/v1/events with JSON body
+// { "actor": "rahul@finstack.com", "action": "LOGIN" }
+
+console.log(req.body.actor);  // 'rahul@finstack.com'
+console.log(req.body.action); // 'LOGIN'
+```
+
+req.headers
+- All HTTP headers from the request
+- Authorization header lives here
+
+```typescript
+console.log(req.headers.authorization); // 'Bearer abc123'
+console.log(req.headers['content-type']); // 'application/json'
+```
+
+## Response (res)
+
+The res object represents the HTTP response you send back to the client.
+
+res.status()
+- Sets the HTTP status code for the response
+- Returns the res object so you can chain methods
+
+```typescript
+res.status(201); // sets status to 201
+res.status(404); // sets status to 404
+```
+
+res.json()
+- Sends a JSON response
+- Automatically sets Content-Type: application/json header
+- Serializes the JavaScript object to JSON string
+- ENDS the request — nothing should run after this in the handler
+
+```typescript
+res.json({ success: true, data: { id: '123' } });
+```
+
+Method Chaining — res.status().json()
+- Since res.status() returns res, you can chain .json() on it
+- This is the most common pattern for sending responses
+
+```typescript
+// These are identical:
+res.status(201).json({ success: true });
+
+// vs
+res.status(201);
+res.json({ success: true });
+```
+
+Always use the chained version — cleaner and more common in real codebases.
+
+res.send()
+- Sends a response of any type (string, Buffer, object)
+- If you pass an object, it behaves like res.json()
+- Prefer res.json() for API responses — it's explicit about returning JSON
+
+---
+
+# 7. ERROR HANDLING
+
+## Why Custom Error Classes?
+
+JavaScript has a built-in Error class. But it only stores a message and a stack trace.
+For a REST API, we also need:
+- HTTP status code (400, 401, 404, 500)
+- Whether the error is operational (expected) or a bug (unexpected)
+
+So we extend the Error class to create AppError that carries this extra info.
+
+## Custom Error Class — AppError
+
+```typescript
+// src/middlewares/error.middleware.ts or src/utils/AppError.ts
+
+export class AppError extends Error {
+  public readonly statusCode: number;
+  public readonly isOperational: boolean;
+
+  constructor(message: string, statusCode: number, isOperational = true) {
+    super(message);            // calls Error constructor, sets this.message
+    this.statusCode = statusCode;
+    this.isOperational = isOperational;
+
+    Object.setPrototypeOf(this, new.target.prototype);
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+```
+
+Now instead of:
+```typescript
+throw new Error('Missing API key'); // no status code info
+```
+
+We do:
+```typescript
+throw new AppError('Missing API key', 401); // has status code!
+```
+
+## Extending the Error Class — What Each Line Does
+
+super(message)
+- Error is the parent class. super() calls its constructor.
+- This sets this.message = message on our AppError instance.
+- Without super(), TypeScript won't let you access 'this' in the constructor.
+
+Object.setPrototypeOf(this, new.target.prototype)
+- A TypeScript/JavaScript quirk when extending built-in classes like Error.
+- Without this line, instanceof checks break in transpiled code.
+- Example: without this, (new AppError(...) instanceof AppError) returns FALSE.
+- Always include this line when extending Error.
+
+Error.captureStackTrace(this, this.constructor)
+- Captures the call stack at the point the error was created.
+- The second argument (this.constructor) tells it to EXCLUDE the AppError
+  constructor itself from the stack trace — so the trace starts from
+  where you actually threw the error, not inside AppError.
+- V8 (Node.js) specific. Skip this line if you need to support other environments.
+
+## Constructor
+
+A constructor is a special method that runs when you create a new instance of a class.
+It sets up the initial state.
+
+```typescript
+class AppError extends Error {
+  public readonly statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    //         ^parameters you pass when doing new AppError(...)
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+// Using it:
+const err = new AppError('Not found', 404);
+// constructor runs, sets err.message = 'Not found', err.statusCode = 404
+```
+
+## Operational vs Unexpected Errors
+
+Operational Errors (isOperational: true)
+- Errors you EXPECT to happen in normal operation
+- Client sent bad data, API key is invalid, record not found
+- These are user/client errors — not bugs in your code
+- Safe to send the error message to the client
+
+Unexpected Errors (isOperational: false or regular Error)
+- Bugs, crashes, unexpected states
+- Database connection dropped, null pointer exceptions
+- NOT safe to expose to the client (don't leak internal details)
+- Should be logged in detail for developers to fix
+
+```typescript
+// Operational: we expect this might happen
+throw new AppError('Tenant not found', 404, true);
+
+// Unexpected: this is a bug or infrastructure failure
+// Don't create AppError for these, let them be regular Errors
+// caught by global error handler as unexpected
+```
+
+## instanceof
+
+instanceof checks whether an object was created from a specific class.
+
+```typescript
+const err = new AppError('test', 400);
+
+err instanceof AppError // true
+err instanceof Error    // true (because AppError extends Error)
+err instanceof Date     // false
+
+// Used in global error handler:
+if (err instanceof AppError) {
+  // we know it's operational, has a statusCode
+  res.status(err.statusCode).json({ message: err.message });
+} else {
+  // unexpected error, hide details
+  res.status(500).json({ message: 'Internal server error' });
+}
+```
+
+## Ternary Operator ?:
+
+A shorthand for if-else.
+
+```typescript
+// if-else version:
+let statusCode;
+if (err instanceof AppError) {
+  statusCode = err.statusCode;
+} else {
+  statusCode = 500;
+}
+
+// Ternary version (same thing):
+const statusCode = err instanceof AppError ? err.statusCode : 500;
+//                 CONDITION                 IF TRUE          IF FALSE
+```
+
+Read it as: "Is it AppError? If yes, use err.statusCode. If no, use 500."
+
+## Global Error Handling Pattern
+
+```typescript
+// src/middlewares/error.middleware.ts
+
+import { Request, Response, NextFunction } from 'express';
+import { AppError } from '../utils/AppError';
+
+export const globalErrorHandler = (
+  err: Error | AppError,
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  // Determine if operational or unexpected
+  const isOperational = err instanceof AppError;
+
+  const statusCode = isOperational ? (err as AppError).statusCode : 500;
+
+  const message = isOperational
+    ? err.message
+    : 'Something went wrong. Please try again later.';
+
+  // Log unexpected errors (bugs) with full details for developers
+  if (!isOperational) {
+    console.error('UNEXPECTED ERROR:', err);
+  }
+
+  // Send different info in dev vs production
+  const isDev = process.env.NODE_ENV === 'development';
+
+  res.status(statusCode).json({
+    success: false,
+    message,
+    ...(isDev && !isOperational && { stack: err.stack }) // show stack only in dev
+  });
+};
+```
+
+## Development vs Production Error Responses
+
+Development:
+- Show full error stack trace
+- Show internal error messages
+- Helps you debug faster
+
+Production:
+- Hide implementation details
+- Never expose stack traces (security risk — reveals file structure, libraries used)
+- Generic message for unexpected errors
+
+```typescript
+// Development response for an unexpected error:
+{
+  "success": false,
+  "message": "Cannot read property 'id' of undefined",
+  "stack": "TypeError: Cannot read property...\n at EventsService..."
+}
+
+// Production response for the same error:
+{
+  "success": false,
+  "message": "Something went wrong. Please try again later."
+}
+```
+
+---
+
+# 8. TYPESCRIPT CONCEPTS USED
+
+## Interfaces
+
+An interface defines the SHAPE of an object — what properties it has and what types they are.
+
+Problem without interface:
+```typescript
+// What is user? What properties does it have? TypeScript doesn't know.
+function createEvent(event: any) { ... }
+```
+
+With interface:
+```typescript
+interface AuditEvent {
+  id: string;
+  tenantId: string;
+  actor: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  metadata?: Record<string, unknown>; // optional
+  createdAt: Date;
+}
+
+function createEvent(event: AuditEvent): Promise<AuditEvent> {
+  // TypeScript knows EXACTLY what properties event has
+  console.log(event.actor);     // OK
+  console.log(event.password);  // ERROR: Property 'password' does not exist
+}
+```
+
+Optional properties: use ? after the property name.
+```typescript
+interface CreateEventDto {
+  actor: string;         // required
+  action: string;        // required
+  metadata?: object;     // optional — may or may not be present
+}
+```
+
+Readonly properties: cannot be changed after object creation.
+```typescript
+interface Config {
+  readonly port: number;
+  readonly dbUrl: string;
+}
+
+const config: Config = { port: 3000, dbUrl: 'postgres://...' };
+config.port = 4000; // ERROR: Cannot assign to 'port' because it is read only
+```
+
+## Generic Interface — ApiResponse<T>
+
+A generic interface works with different types. The T is a placeholder for any type.
+
+```typescript
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message: string;
+}
+
+// Using it with different types:
+const eventResponse: ApiResponse<AuditEvent> = {
+  success: true,
+  data: { id: '123', actor: 'rahul', ... }, // data is AuditEvent
+  message: 'Event created'
+};
+
+const eventsListResponse: ApiResponse<AuditEvent[]> = {
+  success: true,
+  data: [{ id: '123', ... }, { id: '456', ... }], // data is AuditEvent array
+  message: 'Events fetched'
+};
+```
+
+T gets replaced with whatever type you specify in the angle brackets.
+ApiResponse<AuditEvent> means: an ApiResponse where data is an AuditEvent.
+ApiResponse<AuditEvent[]> means: an ApiResponse where data is an array of AuditEvents.
+
+## Extending Interfaces
+
+One interface can inherit all properties from another and add more.
+
+```typescript
+interface AuditEvent {
+  id: string;
+  actor: string;
+  action: string;
+  createdAt: Date;
+}
+
+interface HighRiskEvent extends AuditEvent {
+  // has all of AuditEvent's properties PLUS:
+  riskScore: number;
+  flaggedAt: Date;
+  reviewedBy?: string;
+}
+```
+
+HighRiskEvent now has: id, actor, action, createdAt, riskScore, flaggedAt, reviewedBy.
+
+## Type Annotations
+
+Telling TypeScript what type a variable, parameter, or return value is.
+
+```typescript
+// Variable annotations
+const port: number = 3000;
+const dbUrl: string = 'postgres://localhost:5432/audit_log_db';
+const isReady: boolean = false;
+
+// Function parameter and return type annotations
+function hashApiKey(key: string): string {
+  // TypeScript knows: key is a string, function returns a string
+  return crypto.createHash('sha256').update(key).digest('hex');
+}
+
+// Array
+const tenantIds: string[] = ['finstack', 'medvault'];
+
+// Object
+const config: { port: number; host: string } = { port: 3000, host: 'localhost' };
+```
+
+Type inference means TypeScript can figure out the type automatically:
+```typescript
+const port = 3000;         // TypeScript infers: number
+const name = 'audit-log'; // TypeScript infers: string
+```
+
+Annotate explicitly when:
+- TypeScript can't infer it (function parameters, empty arrays)
+- You want to document the intent clearly
+
+## Union Types
+
+A value that can be one of several types.
+
+```typescript
+type Status = 'active' | 'inactive' | 'suspended';
+
+// Error types in our global handler
+type AppErrors = Error | AppError;
+
+function handleError(err: Error | AppError): void {
+  // err can be either Error or AppError
+}
+
+// Nullable types (either a value or null)
+function findTenant(id: string): Tenant | null {
+  // might return a Tenant, might return null if not found
+}
+```
+
+## Literal Types
+
+A literal type restricts a value to EXACTLY that value.
+
+```typescript
+// Without literal types:
+let status: string = 'active'; // could be ANY string, including 'gibberish'
+
+// With literal types:
+let status: 'active' | 'inactive' = 'active'; // ONLY these two strings allowed
+
+// as const: makes TypeScript infer the most specific type
+const config = {
+  env: 'development'
+} as const;
+// config.env type is 'development' not string
+// Prevents accidental modification
+```
+
+## readonly
+
+Makes a property immutable after creation.
+
+```typescript
+interface EnvConfig {
+  readonly port: number;
+  readonly databaseUrl: string;
+  readonly nodeEnv: string;
+}
+
+const env: EnvConfig = {
+  port: 3000,
+  databaseUrl: 'postgres://...',
+  nodeEnv: 'development'
+};
+
+env.port = 4000; // TypeScript ERROR — port is readonly
+```
+
+Use readonly for config objects, constants, anything that shouldn't change at runtime.
+
+## as const
+
+Makes all properties in an object readonly AND gives them literal types.
+
+```typescript
+const HTTP_STATUS = {
+  OK: 200,
+  CREATED: 201,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  INTERNAL_SERVER_ERROR: 500
+} as const;
+
+// Without as const: HTTP_STATUS.OK type is 'number'
+// With as const: HTTP_STATUS.OK type is literally '200' (the number 200)
+// Also: all properties are readonly
+
+HTTP_STATUS.OK = 999; // ERROR: Cannot assign to 'OK' because it is read only
+```
+
+## Type Safety for API Responses
+
+Without type safety:
+```typescript
+function sendResponse(res: Response, data: any) {
+  res.json(data); // could be anything, no guarantees
+}
+```
+
+With type safety:
+```typescript
+function sendSuccess<T>(res: Response, data: T, statusCode = 200): void {
+  const response: ApiResponse<T> = {
+    success: true,
+    data,
+    message: 'Success'
+  };
+  res.status(statusCode).json(response);
+}
+// TypeScript ensures response always has the right shape
+```
+
+---
+
+# 9. ENVIRONMENT CONFIGURATION
+
+## Environment Variables
+
+Environment variables are key-value pairs set in the operating system or a .env file.
+They configure your app WITHOUT hardcoding values in code.
+
+Why not hardcode?
+- Different values in dev vs production (different DB URLs, different ports)
+- Secrets (passwords, API keys) should NEVER be in source code
+- Flexibility — change config without changing code
+
+## .env File
+
+A file named exactly .env in your project root.
+Contains key-value pairs, one per line.
+
+```
+# .env
+PORT=3000
+NODE_ENV=development
+DATABASE_URL=postgresql://postgres:mysql@1703@localhost:5432/audit_log_db
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=your-super-secret-key-here
+```
+
+NEVER commit .env to git. Add it to .gitignore immediately.
+Commit .env.example with fake values so other developers know what to fill in.
+
+```
+# .env.example (safe to commit)
+PORT=3000
+NODE_ENV=development
+DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=change-this-to-a-real-secret
+```
+
+## dotenv
+
+A library that reads your .env file and loads variables into process.env.
+
+```typescript
+import dotenv from 'dotenv';
+dotenv.config(); // reads .env, adds to process.env
+
+// Now you can access them:
+process.env.PORT           // '3000'
+process.env.DATABASE_URL   // 'postgresql://...'
+```
+
+Call dotenv.config() at the very top of your entry file, before anything else.
+If you call it after other modules, those modules might read process.env before
+the .env file is loaded — getting undefined.
+
+## Centralized Config — env.ts
+
+Instead of calling process.env everywhere, create ONE config file that:
+1. Loads .env
+2. Validates required variables exist
+3. Exports a typed config object
+
+```typescript
+// src/config/env.ts
+import dotenv from 'dotenv';
+dotenv.config();
+
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) {
+    // Crash immediately at startup — better to fail fast than fail mysteriously later
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
+export const env = {
+  port: parseInt(process.env.PORT ?? '3000', 10),
+  nodeEnv: process.env.NODE_ENV ?? 'development',
+  databaseUrl: requireEnv('DATABASE_URL'),
+  redisUrl: requireEnv('REDIS_URL'),
+} as const;
+```
+
+Now everywhere in your code:
+```typescript
+import { env } from '../config/env';
+
+// Instead of:
+const port = process.env.PORT; // could be undefined!
+
+// You do:
+const port = env.port; // always a number, TypeScript knows it
+```
+
+## Required Environment Variables
+
+Use requireEnv() for variables that your app CANNOT run without.
+If DATABASE_URL is missing, there's no point in starting the server —
+it would crash later anyway when it tries to connect.
+
+Fail fast = better error messages, easier debugging.
+
+## Helper Functions — requireEnv
+
+```typescript
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
+// Usage:
+const dbUrl = requireEnv('DATABASE_URL');
+// If DATABASE_URL is not set, throws immediately with clear message
+// If DATABASE_URL is set, returns it as a non-null string
+```
+
+## NODE_ENV
+
+A convention (not a built-in feature) that tells your app what environment it's in.
+
+```
+NODE_ENV=development   → local machine, verbose logging, detailed errors
+NODE_ENV=production    → deployed server, minimal logging, generic error messages
+NODE_ENV=test          → running tests, uses test database
+```
+
+Your code checks NODE_ENV to change behavior:
+```typescript
+const isDev = env.nodeEnv === 'development';
+
+if (isDev) {
+  // show detailed error with stack trace
+} else {
+  // show generic error message
+}
+```
+
+---
+
+# 10. NODE.JS FUNDAMENTALS
+
+## process Object
+
+process is a global object in Node.js — available everywhere without importing.
+It gives you access to information about the currently running Node.js process.
+
+Important properties and methods:
+
+process.env
+- Object containing all environment variables
+- Always string values or undefined
+
+```typescript
+process.env.PORT       // '3000' (string)
+process.env.MISSING    // undefined
+```
+
+process.uptime()
+- Returns how many seconds the Node.js process has been running
+- Returns a float (e.g. 143.52 seconds)
+
+```typescript
+const uptimeSeconds = Math.floor(process.uptime()); // 143
+```
+
+process.exit(code)
+- Immediately terminates the Node.js process
+- code 0 = success (normal exit)
+- code 1 = failure (error exit)
+
+```typescript
+// If critical config is missing, crash the process
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL is required');
+  process.exit(1); // exit with error code
+}
+```
+
+process.on('uncaughtException', handler)
+- Catches errors that were never caught by any try-catch
+- Last resort error handling
+
+```typescript
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  process.exit(1); // crash and let process manager restart
+});
+```
+
+## Math.floor()
+
+Rounds a number DOWN to the nearest integer.
+
+```typescript
+Math.floor(143.8)  // 143
+Math.floor(0.9)    // 0
+Math.floor(-1.1)   // -2 (rounds toward negative infinity)
+```
+
+Used with process.uptime() to get whole seconds:
+```typescript
+const uptime = Math.floor(process.uptime()); // e.g. 143
+```
+
+## Node Process Lifetime
+
+A Node.js process lives until:
+1. You call process.exit()
+2. An uncaught exception kills it
+3. The machine shuts down
+4. You manually stop it (Ctrl+C, kill command)
+
+Express's app.listen() keeps the process alive — it starts an event loop
+waiting for incoming connections. Without it, Node.js would exit immediately
+after your code finishes running.
+
+---
+
+# 11. JSON & API RESPONSES
+
+## JSON
+
+JSON = JavaScript Object Notation.
+
+The standard data format for REST APIs. Both the request body and response body
+are almost always JSON in modern APIs.
+
+JSON rules:
+- Keys MUST be in double quotes: "name" not name
+- String values MUST be in double quotes: "rahul" not rahul
+- Numbers, booleans, null — no quotes
+- No trailing commas (unlike JavaScript objects)
+- No comments
+
+```json
+{
+  "actor": "rahul@finstack.com",
+  "action": "TRANSACTION_APPROVED",
+  "amount": 4700000,
+  "approved": true,
+  "metadata": null,
+  "tags": ["finance", "high-value"]
+}
+```
+
+## JavaScript Object vs JSON
+
+They look similar but are different things.
+
+```typescript
+// JavaScript Object (in your code)
+const event = {
+  actor: 'rahul@finstack.com',  // keys without quotes are fine in JS
+  action: 'APPROVED',
+  createdAt: new Date()         // Date object — valid in JS, NOT in JSON
+};
+
+// JSON (a STRING format)
+const json = '{"actor":"rahul@finstack.com","action":"APPROVED"}';
+// Note: Date objects don't exist in JSON — they become strings
+
+// Convert JS object TO JSON string:
+const jsonString = JSON.stringify(event);
+
+// Convert JSON string TO JS object:
+const parsed = JSON.parse(jsonString);
+```
+
+res.json() does JSON.stringify() for you automatically.
+express.json() middleware does JSON.parse() on the request body for you.
+
+## Response Object Pattern
+
+Always return a consistent structure from your API.
+Every endpoint should return the same shape — clients can then handle
+all responses the same way.
+
+```typescript
+// Success response
+{
+  "success": true,
+  "data": { ... },   // the actual payload
+  "message": "Event created successfully"
+}
+
+// Error response
+{
+  "success": false,
+  "message": "Missing API key"
+}
+
+// Paginated response
+{
+  "success": true,
+  "data": [ ... ],
+  "meta": {
+    "total": 1000,
+    "limit": 50,
+    "cursor": "next-page-cursor"
+  }
+}
+```
+
+## "Prepare First, Send Last" Pattern
+
+Build your response object first, then send it once.
+
+```typescript
+// BAD — sending multiple times will cause error
+res.json({ part: 1 });
+res.json({ part: 2 }); // Error: Cannot set headers after they are sent
+
+// GOOD — prepare everything, send once
+const responseData: ApiResponse<AuditEvent> = {
+  success: true,
+  data: createdEvent,
+  message: 'Event queued for processing'
+};
+
+res.status(202).json(responseData);
+// Nothing after this. Response is done.
+```
+
+After res.json() or res.send() — the response is SENT.
+You cannot modify headers or send more data after that.
+
+---
+
+# 12. PROJECT STRUCTURE
+
+```
+audit-log-service/
+├── src/
+│   ├── config/
+│   │   ├── env.ts          ← environment variables (loaded once, exported as typed object)
+│   │   ├── database.ts     ← Prisma client singleton
+│   │   ├── redis.ts        ← Redis connection
+│   │   └── queues.ts       ← BullMQ queue definitions
+│   │
+│   ├── controllers/
+│   │   └── events.controller.ts   ← handles HTTP req/res, calls service
+│   │
+│   ├── services/
+│   │   ├── events.service.ts      ← business logic
+│   │   ├── cache.service.ts       ← Redis caching logic
+│   │   └── archival.service.ts    ← S3 archival logic
+│   │
+│   ├── models/
+│   │   └── event.model.ts         ← database queries (Prisma calls)
+│   │
+│   ├── routes/
+│   │   └── events.route.ts        ← route definitions, middleware chain
+│   │
+│   ├── middlewares/
+│   │   ├── auth.middleware.ts      ← API key validation
+│   │   ├── authorize.middleware.ts ← RBAC role check
+│   │   └── error.middleware.ts     ← global error handler
+│   │
+│   ├── workers/
+│   │   └── audit-events.worker.ts ← BullMQ consumer
+│   │
+│   ├── jobs/
+│   │   └── archival.job.ts        ← nightly cron
+│   │
+│   ├── types/
+│   │   ├── event.types.ts         ← Zod schemas + inferred TS types
+│   │   ├── common.types.ts        ← ApiResponse<T>, PaginatedResponse<T>
+│   │   └── express.d.ts           ← Express Request type extension
+│   │
+│   └── app.ts              ← Entry point: express setup, middleware, route mounting
+│
+├── prisma/
+│   └── schema.prisma       ← database schema definition
+│
+├── .env                    ← secrets (gitignored)
+├── .env.example            ← template (committed to git)
+├── .gitignore
+├── tsconfig.json
+└── package.json
+```
+
+## Entry Point — app.ts
+
+app.ts is the starting point of your server. It:
+1. Creates the Express app
+2. Registers global middleware (express.json, etc.)
+3. Mounts all routers
+4. Registers 404 handler
+5. Registers global error handler
+6. Starts listening on a port
+
+Everything flows from app.ts.
+
+## Config Folder
+
+Contains all external service connections and environment setup.
+Nothing in here contains business logic — it's pure configuration.
+
+Rule: Any time you need to connect to something (DB, Redis, S3), the
+connection setup goes in config/. Everything else imports from config/.
+
+## Routes Folder
+
+Only contains route definitions. No business logic here.
+A route file should do ONLY:
+- Import the router
+- Import middlewares
+- Import the controller
+- Define which middleware chain applies to which route
+- Export the router
+
+## Middleware Folder
+
+Contains reusable middleware functions.
+Each middleware file handles ONE concern (auth OR role check OR error handling, not all three).
+
+## Types Folder
+
+TypeScript-only files. Contains:
+- Zod schemas (which also generate TS types)
+- Shared interfaces and types used across multiple files
+- Express type extensions (.d.ts files)
+
+## Modular Backend Architecture
+
+The key idea: each file has ONE job. When you need to change something,
+you know exactly which file to open.
+
+Need to change how API keys are validated? Open auth.middleware.ts.
+Need to change what happens after an event is queued? Open audit-events.worker.ts.
+Need to add a new field to event queries? Open event.model.ts.
+
+---
+
+# 13. BACKEND DESIGN CONCEPTS
+
+## Separation of Concerns
+
+Each part of the code should care about ONE thing only.
+
+```
+Controller  → handles HTTP (reading req, sending res)
+Service     → handles business logic (rules, decisions)
+Model       → handles database (queries, data access)
+Middleware  → handles cross-cutting concerns (auth, logging, validation)
+Config      → handles external connections and environment
+```
+
+If your controller is directly calling Prisma? Wrong — that's the model's job.
+If your model is checking user permissions? Wrong — that's the middleware's job.
+
+## Modular Routing
+
+Instead of one giant route file, split routes by resource.
+
+```typescript
+// BAD — everything in app.ts
+app.get('/events', ...);
+app.post('/events', ...);
+app.get('/tenants', ...);
+app.post('/tenants', ...);
+// 50 routes all in one file = nightmare to maintain
+
+// GOOD — split by resource
+import eventsRouter from './routes/events.route';
+import tenantsRouter from './routes/tenants.route';
+
+app.use('/api/v1/events', eventsRouter);
+app.use('/api/v1/tenants', tenantsRouter);
+// Each router is self-contained
+```
+
+## Centralized Error Handling
+
+Instead of handling errors in every controller separately,
+use a SINGLE global error handler.
+
+```typescript
+// BAD — error handling in every controller
+async function ingestEvent(req: Request, res: Response) {
+  try {
+    const result = await eventsService.create(req.body);
+    res.json(result);
+  } catch (err) {
+    // Duplicated in every controller — 20 controllers = 20 places to maintain
+    res.status(500).json({ message: 'Something went wrong' });
+  }
+}
+
+// GOOD — just pass error to next(), centralized handler takes care of it
+async function ingestEvent(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await eventsService.create(req.body);
+    res.json(result);
+  } catch (err) {
+    next(err); // global error handler deals with it
+  }
+}
+```
+
+## Consistent API Response Structure
+
+All endpoints return the same shape. Clients never have to guess.
+
+```typescript
+// Every success response:
+{ success: true, data: <payload>, message: <string> }
+
+// Every error response:
+{ success: false, message: <string> }
+
+// Every paginated response:
+{ success: true, data: <array>, meta: { limit, cursor, has_next }, message: <string> }
+```
+
+This is enforced by the ApiResponse<T> generic interface in common.types.ts.
+TypeScript ensures you can't accidentally return a different shape.
+
+## Middleware Pipeline
+
+Think of every request flowing through a PIPELINE of functions.
+
+```
+POST /api/v1/events
+       |
+       v
+express.json()          ← parse the body
+       |
+       v
+authMiddleware          ← validate API key, attach req.tenant
+       |
+       v
+authorize('ADMIN',      ← check role
+'INGEST_ONLY')
+       |
+       v
+eventsController        ← validate body with Zod, call service
+.ingestEvent
+       |
+       v
+eventsService           ← push to BullMQ queue
+.create
+       |
+       v
+res.status(202).json()  ← send response
+```
+
+If any step calls next(error), it jumps directly to:
+
+```
+       |
+       v
+globalErrorHandler      ← format and send error response
+```
+
+## Request Lifecycle
+
+Full lifecycle of a request to POST /api/v1/events:
+
+```
+1. Client sends HTTP POST request with JSON body and Authorization header
+
+2. Express receives the raw request
+
+3. express.json() middleware runs
+   → parses JSON body
+   → populates req.body
+   → calls next()
+
+4. authMiddleware runs
+   → reads Authorization header
+   → hashes the key, queries DB
+   → finds the tenant
+   → attaches tenant to req.tenant
+   → calls next()
+
+5. authorize middleware runs
+   → checks req.tenant.role
+   → role is 'ADMIN' or 'INGEST_ONLY' → allowed
+   → calls next()
+
+6. eventsController.ingestEvent runs
+   → validates req.body with Zod schema
+   → calls eventsService.create(validatedData, req.tenant.id)
+
+7. eventsService.create runs
+   → creates job data object
+   → pushes job to BullMQ queue
+   → returns job ID
+
+8. Controller receives the job ID
+   → calls res.status(202).json({ success: true, data: { event_id: jobId } })
+
+9. Response travels back to client
+   → client receives 202 Accepted with event_id
+
+10. (Separately, asynchronously)
+    BullMQ worker picks up the job
+    → writes to PostgreSQL
+    → updates Redis cache
+```
+
+Total time for steps 1-9: typically < 10ms (no DB write during request)
+Step 10 happens in the background: ~50-200ms
+
+---
+
+# QUICK REFERENCE
+
+## HTTP Methods at a glance
+```
+GET    → Read/fetch      → No body    → Idempotent
+POST   → Create          → Has body   → NOT idempotent
+PUT    → Replace fully   → Has body   → Idempotent
+PATCH  → Partial update  → Has body   → NOT necessarily idempotent
+DELETE → Remove          → No body    → Idempotent
+```
+
+## Status Codes at a glance
+```
+200 OK                  → General success
+201 Created             → New resource created (POST)
+202 Accepted            → Received, will process async
+204 No Content          → Success, nothing to return
+400 Bad Request         → Client sent bad data
+401 Unauthorized        → Not authenticated (who are you?)
+403 Forbidden           → Authenticated but not allowed (you can't do this)
+404 Not Found           → Resource doesn't exist
+422 Unprocessable       → Data understood but semantically wrong
+429 Too Many Requests   → Rate limit hit
+500 Internal Server     → Server bug/crash
+```
+
+## Middleware execution reminder
+```
+app.use(express.json())          ← FIRST
+app.use(specificMiddleware)      ← MIDDLE
+app.use('/route', router)        ← ROUTES
+app.use(notFoundHandler)         ← AFTER ROUTES
+app.use(globalErrorHandler)      ← ABSOLUTELY LAST (4 params)
+```
+
+## TypeScript utility types at a glance
+```
+Partial<T>            → all props optional
+Required<T>           → all props required
+Pick<T, 'a'|'b'>      → keep only listed props
+Omit<T, 'a'|'b'>      → remove listed props
+Record<K, V>          → object with keys K and values V
+Readonly<T>           → all props readonly
+```
+
+## Key rules to never forget
+```
+1. express.json() BEFORE any route that reads req.body
+2. Global error handler MUST be last and have 4 params (err, req, res, next)
+3. Always call next() or send a response in middleware — never neither
+4. 4xx = client's fault  |  5xx = server's fault
+5. Never commit .env to git
+6. req.query values are always STRINGS even if they look like numbers
+7. After res.json() — the response is done. Don't call it twice.
+8. next(error) skips straight to global error handler
+```
+
+---
+
+End of Phase 1 Notes
+Next Phase: Routing + Zod Validation + Controllers

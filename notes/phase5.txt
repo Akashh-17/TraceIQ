@@ -1,0 +1,133 @@
+========================================================================
+Phase 5: Event-Driven Architecture with BullMQ + Redis
+========================================================================
+
+1. Phase Goal
+-------------
+Convert TraceIQ from a synchronous (blocking) API to an asynchronous,
+event-driven system. The API now returns 202 Accepted immediately after
+dropping the job into a queue. A separate background Worker picks up
+jobs and writes them to PostgreSQL.
+
+2. Backend Concepts Learned
+---------------------------
+- Event-Driven Architecture: Decouple the API from the database write using a queue in the middle.
+- Producer: The entity that creates jobs (EventsService → BullMQ Queue).
+- Consumer/Worker: The entity that picks up jobs and processes them (events.worker.ts).
+- Queue: An ordered waiting room for jobs, stored in Redis.
+- Job: One unit of work — the event payload plus metadata.
+- BullMQ: Node.js queue library that manages job lifecycle in Redis.
+- Redis: In-memory store used by BullMQ to persist jobs between API and Worker.
+- Background Processing: Work that happens after the client has already received a response.
+- Retry Mechanism: BullMQ automatically retries failed jobs with exponential backoff.
+- At Least Once Delivery: Jobs will always be processed at least once, never dropped silently.
+- Eventual Consistency: Event appears in DB shortly after the API responds, not instantly.
+- Dead Letter Queue: Failed jobs after all retries are stored in BullMQ's 'failed' list.
+- 202 Accepted: Honest response — "I received your request, it will be processed soon."
+
+3. Request Flow Diagram
+-----------------------
+API PROCESS:
+  Client ──POST /events──▶ authMiddleware ──▶ Controller ──▶ Service
+  Service ──queue.add()──▶ Redis ──▶ 202 Accepted to Client (~10ms)
+
+WORKER PROCESS (background, separate):
+  Redis ──job──▶ events.worker.ts ──▶ EventRepository ──▶ PostgreSQL
+
+4. Architecture Before vs After
+--------------------------------
+Phase 3 (Synchronous):
+  API ──▶ Service ──▶ Repository ──▶ PostgreSQL ──▶ Response
+  (Client waits for DB write. Slow. Fragile under load.)
+
+Phase 5 (Asynchronous):
+  API ──▶ Service ──▶ Queue ──▶ 202 Response (fast)
+  Worker ──▶ Repository ──▶ PostgreSQL (background, retried on failure)
+
+5. Files Created
+----------------
+- src/config/queue.ts            — Redis connection + BullMQ Queue configuration
+- src/workers/events.worker.ts   — Background job processor (the Consumer)
+- src/workers/index.ts           — Worker process entry point with graceful shutdown
+
+6. Files Modified
+-----------------
+- src/services/events.service.ts — Changed from calling Repository to pushing to Queue
+- src/controllers/events.controller.ts — Response type updated (queued: boolean)
+- src/config/env.ts              — Added redisUrl requirement
+- package.json                   — Added "worker" script
+
+7. Responsibility of Every File
+-------------------------------
+- queue.ts: Creates the shared Redis connection and the 'audit-events' Queue instance.
+  Think of it as the control room that defines the queue's rules (retries, backoff, etc.)
+
+- events.worker.ts: The actual job processor. BullMQ calls the processor function
+  for each dequeued job. If it throws, BullMQ retries. If it returns, job is completed.
+
+- workers/index.ts: Boots the worker as a separate Node.js process.
+  Handles graceful shutdown so in-flight jobs are not interrupted on Ctrl+C or deploy.
+
+- events.service.ts (modified): Now the Producer. Its only job is to add a job to
+  the queue and return. It no longer touches the Repository at all.
+
+8. Interview Questions
+----------------------
+Q: What is the difference between synchronous and asynchronous processing?
+A: Synchronous = client waits for the full operation to complete.
+   Asynchronous = client gets an immediate acknowledgement; work happens in the background.
+
+Q: Why does BullMQ need Redis?
+A: BullMQ has no built-in storage. It uses Redis (an in-memory data store) to persist
+   job data, track job states, and coordinate between producers and workers.
+
+Q: What happens if the Worker crashes mid-job?
+A: BullMQ tracks the job as 'active'. If the worker crashes, BullMQ moves it back to
+   'waiting' and retries it when the worker restarts. No data is lost.
+
+Q: What is the difference between Redis for caching and Redis for BullMQ?
+A: For caching, Redis is an optional shortcut in front of a real DB (data exists in both places).
+   For BullMQ, Redis IS the primary storage for jobs (data only exists in Redis until processed).
+
+Q: Why did the Controller and Repository not change in Phase 5?
+A: Separation of Concerns. The Controller validates HTTP. The Repository writes SQL.
+   Only the middle layer (Service) changed — it now queues instead of writing directly.
+
+Q: What is At Least Once Delivery?
+A: A guarantee that every job will be processed at minimum once, even if a failure occurs.
+   In exchange, it may be processed twice in rare edge cases (idempotency should be considered).
+
+Q: What is Eventual Consistency?
+A: The state where data will eventually be correct, but not necessarily immediately.
+   In Phase 5, the event is in the DB "eventually" — after the Worker processes it.
+
+9. Five Minute Revision Notes
+------------------------------
+- Phase 5 converts TraceIQ from sync to async using BullMQ + Redis.
+- API becomes a Producer: accepts event, pushes to queue, returns 202.
+- Worker is a Consumer: always listening, picks up jobs, writes to PostgreSQL.
+- Redis stores jobs between the Producer and Consumer.
+- BullMQ retries failed jobs automatically (3 attempts, exponential backoff).
+- Job states: WAITING → ACTIVE → COMPLETED / FAILED
+- Two separate processes: `npm run dev` (API) + `npm run worker` (Worker)
+- Controller and Repository are completely unchanged — only Service changed.
+
+10. Common Mistakes Beginners Make
+------------------------------------
+- Running the Queue and Worker in the same process: They can be in the same
+  process but should ideally be separate so they can scale independently.
+
+- Forgetting to handle worker errors: If you don't listen to 'failed' events,
+  failures are silent. Always add event listeners for monitoring.
+
+- Using the wrong Redis connection for multiple services: Always export and reuse
+  one shared `redisConnection` config, not multiple objects with the same URL.
+
+- Putting business logic in the Worker: The Worker should only call the Repository.
+  Any business logic belongs in the Service layer (even if called from the Worker).
+
+- Not configuring removeOnComplete/removeOnFail: Without this, Redis accumulates
+  millions of completed job records and runs out of memory in production.
+
+- Forgetting graceful shutdown: If a Worker is killed mid-job, the job gets stuck
+  in 'active' state. Always listen to SIGTERM/SIGINT and call worker.close().
