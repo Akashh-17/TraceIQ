@@ -3,17 +3,24 @@ node_modules/
 
 # Build output
 dist/
-
-# Environment secrets — NEVER commit this
-.env
-
-# TypeScript cache
+dist-ssr/
 *.tsbuildinfo
 
-# OS files
-.DS_Store
-Thumbs.db
+# Secrets — never commit real env files (the .env.example templates are fine)
+.env
+.env.*
+!.env.example
 
 # Logs
 logs/
 *.log
+
+# Local tool and editor config
+.claude/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

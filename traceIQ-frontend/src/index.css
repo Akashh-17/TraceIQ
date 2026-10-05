@@ -1,0 +1,271 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════════
+   Design Tokens  (Tailwind v4 @theme)
+   All tokens become both Tailwind utilities AND CSS custom properties.
+   e.g. --color-base → bg-base, text-base, border-base, var(--color-base)
+   ═══════════════════════════════════════════════════════════════════ */
+@theme {
+  /* Backgrounds — neutral editorial darks (LayerZero-inspired) */
+  --color-base:     #0d0d0f;
+  --color-surface:  #141416;
+  --color-elevated: #1c1c1f;
+  --color-input:    #0a0a0c;
+
+  /* Borders — semi-transparent for editorial softness */
+  --color-border:       rgba(255, 255, 255, 0.12);
+  --color-border-muted: rgba(255, 255, 255, 0.06);
+
+  /* Text */
+  --color-primary:   #f4f4f2;
+  --color-secondary: #94949b;
+  --color-muted:     #52525b;
+  --color-code:      #79c0ff;
+
+  /* Grid line (for rules-band / gridlines backgrounds) */
+  --color-grid-line: rgba(255, 255, 255, 0.05);
+
+  /* Severity — unchanged */
+  --color-sev-high: #ff4b4b;
+  --color-sev-med:  #f0883e;
+  --color-sev-low:  #388bfd;
+
+  /* Status — unchanged */
+  --color-status-open:     #ff4b4b;
+  --color-status-ack:      #d29922;
+  --color-status-resolved: #3fb950;
+
+  /* Accent — unchanged */
+  --color-accent:    #58a6ff;
+  --color-accent-ai: #a371f7;
+
+  /* Typography */
+  --font-heading: 'EB Garamond', Georgia, serif;
+  --font-sans:    'Geist Variable', system-ui, -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* Border radius scale */
+  --radius-sm: 2px;
+  --radius:    4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+
+  /* Layout constants */
+  --width-sidebar: 280px;
+  --height-topbar: 64px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Backward-compat aliases
+   Existing component CSS files reference the old var names.
+   These bridge old CSS → new tokens. Removed file by file in F2–F8.
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  /* Backgrounds */
+  --bg-base:     var(--color-base);
+  --bg-surface:  var(--color-surface);
+  --bg-elevated: var(--color-elevated);
+  --bg-input:    var(--color-input);
+
+  /* Borders */
+  --border:        var(--color-border);
+  --border-subtle: var(--color-border-muted);
+
+  /* Text */
+  --text-primary:   var(--color-primary);
+  --text-secondary: var(--color-secondary);
+  --text-muted:     var(--color-muted);
+  --text-code:      var(--color-code);
+
+  /* Severity + semi-transparent tints */
+  --sev-high:    var(--color-sev-high);
+  --sev-high-bg: color-mix(in srgb, var(--color-sev-high) 12%, transparent);
+  --sev-med:     var(--color-sev-med);
+  --sev-med-bg:  color-mix(in srgb, var(--color-sev-med) 12%, transparent);
+  --sev-low:     var(--color-sev-low);
+  --sev-low-bg:  color-mix(in srgb, var(--color-sev-low) 12%, transparent);
+
+  /* Status */
+  --status-open:     var(--color-status-open);
+  --status-ack:      var(--color-status-ack);
+  --status-resolved: var(--color-status-resolved);
+
+  /* Accent */
+  --accent:       var(--color-accent);
+  --accent-ai:    var(--color-accent-ai);
+  --accent-ai-bg: color-mix(in srgb, var(--color-accent-ai) 12%, transparent);
+
+  /* Font aliases (old CSS used --font-ui / --font-mono) */
+  --font-ui: var(--font-sans);
+
+  /* Layout aliases */
+  --sidebar-width: var(--width-sidebar);
+  --topbar-height: var(--height-topbar);
+  --drawer-width:  480px;
+  --panel-width:   360px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Base layer
+   ═══════════════════════════════════════════════════════════════════ */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    height: 100%;
+  }
+
+  body {
+    min-height: 100%;
+    background-color: var(--color-base);
+    color: var(--color-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    padding: 0;
+  }
+
+  #root {
+    height: 100%;
+  }
+
+  a {
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+
+  button {
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  input, select, textarea {
+    font-family: inherit;
+  }
+
+  /* Scrollbar styling (Webkit) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-secondary);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  @keyframes slide-up {
+    from { opacity: 0; transform: translate(-50%, -46%); }
+    to   { opacity: 1; transform: translate(-50%, -50%); }
+  }
+
+  @keyframes blurFadeIn {
+    from { opacity: 0; transform: translateY(6px); filter: blur(6px); }
+    to   { opacity: 1; transform: translateY(0);   filter: blur(0);   }
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: -800px 0; }
+    100% { background-position:  800px 0; }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Editorial utility classes  (LayerZero-inspired)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Kicker: mono uppercase label used for all section headings */
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  color: var(--color-secondary);
+  font-weight: 500;
+}
+
+/* Horizontal rule */
+.rule {
+  width: 100%;
+  height: 1px;
+  background-color: var(--color-border);
+}
+
+/* Rule with a tag pinned to the left, line extends right */
+.rule--tagged {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rule--tagged::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background-color: var(--color-border);
+}
+
+/* Large 64×64 grid background for hero / full-bleed sections */
+.rules-band {
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent calc(100% - 1px), var(--color-grid-line) calc(100% - 1px), var(--color-grid-line) 100%),
+    repeating-linear-gradient(90deg, transparent, transparent calc(100% - 1px), var(--color-grid-line) calc(100% - 1px), var(--color-grid-line) 100%);
+  background-size: 64px 64px;
+}
+
+/* Tight 28×28 grid for auth card panels */
+.gridlines {
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent calc(100% - 1px), var(--color-grid-line) calc(100% - 1px), var(--color-grid-line) 100%),
+    repeating-linear-gradient(90deg, transparent, transparent calc(100% - 1px), var(--color-grid-line) calc(100% - 1px), var(--color-grid-line) 100%);
+  background-size: 28px 28px;
+}
+
+/* Page entry animation */
+.animate-blur-fade-in {
+  animation: blurFadeIn 0.45s ease-out;
+}
+
+/* Shimmer loading skeleton */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-elevated) 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    var(--color-elevated) 100%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Gradient text — for hero headings */
+.text-gradient {
+  background: linear-gradient(135deg, #ffffff 10%, #c4b5fd 60%, #a371f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
