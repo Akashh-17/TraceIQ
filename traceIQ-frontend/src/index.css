@@ -43,6 +43,8 @@
   --font-heading: 'EB Garamond', Georgia, serif;
   --font-sans:    'Geist Variable', system-ui, -apple-system, sans-serif;
   --font-mono:    'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  /* Public pages (landing, auth, onboarding) use Geist Mono for event data and code */
+  --font-geist-mono: 'Geist Mono', ui-monospace, monospace;
 
   /* Border radius scale */
   --radius-sm: 2px;
@@ -260,6 +262,50 @@
   );
   background-size: 800px 100%;
   animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Public pages (landing, sign in / sign up, onboarding)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Soft violet/blue glow drawn with blurred gradients — no image needed */
+.aurora {
+  position: absolute;
+  inset: auto -20% -30% -20%;
+  height: 70%;
+  background:
+    radial-gradient(40% 60% at 25% 60%, rgba(124, 77, 255, 0.45), transparent 70%),
+    radial-gradient(35% 55% at 70% 55%, rgba(79, 124, 255, 0.40), transparent 70%),
+    radial-gradient(30% 40% at 50% 80%, rgba(56, 189, 248, 0.22), transparent 70%);
+  filter: blur(60px);
+  animation: aurora-drift 18s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes aurora-drift {
+  from { transform: translateX(-4%) scale(1);    }
+  to   { transform: translateX(4%)  scale(1.08); }
+}
+
+/* Hero audit stream: rows appear one by one (delay set inline per row) */
+.stream-in {
+  opacity: 0;
+  animation: stream-in 0.45s ease-out forwards;
+}
+
+@keyframes stream-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.reveal-up {
+  opacity: 0;
+  animation: blurFadeIn 0.7s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora { animation: none; }
+  .stream-in, .reveal-up { opacity: 1; animation: none; }
 }
 
 /* Gradient text — for hero headings */

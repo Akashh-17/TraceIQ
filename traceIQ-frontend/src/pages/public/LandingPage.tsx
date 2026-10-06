@@ -1,368 +1,294 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowRight, ArrowUpRight, ScrollText, ShieldAlert, Webhook, Sparkles, UserSearch, Lock } from 'lucide-react';
+import { Logo } from '../../components/shared/Logo';
 import { cn } from '@/lib/utils';
 
-/* ── Static data ──────────────────────────────────────────────────────── */
+const GITHUB_URL = 'https://github.com/Akashh-17/TraceIQ';
 
-const PAIN_POINTS = [
-  { problem: 'Logs scattered across 5 different services',        solution: 'Unified audit trail with a single query interface' },
-  { problem: 'Security alerts with no context or explanation',    solution: 'Every detection links back to full event chains' },
-  { problem: 'AI investigation takes days of manual analysis',    solution: 'LangGraph AI analysis completes in under 30 seconds' },
-  { problem: 'No way to prove compliance to auditors',            solution: 'Immutable, tamper-proof event log with NL explanations' },
+/* ── Button styles shared across the page ─────────────────────────────── */
+
+const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400';
+const primaryBtn = cn(
+  'inline-flex items-center gap-2 h-11 px-6 rounded-full text-[15px] font-medium text-white',
+  'bg-[linear-gradient(90deg,#7c4dff,#4f7cff)] shadow-[0_8px_30px_rgba(124,77,255,0.35)]',
+  'hover:brightness-110 transition', focusRing,
+);
+const ghostBtn = cn(
+  'inline-flex items-center gap-2 h-11 px-6 rounded-full text-[15px] font-medium text-white',
+  'bg-white/5 border border-white/10 hover:bg-white/10 transition', focusRing,
+);
+
+/* ── Hero: a live audit stream that ends in a detection ───────────────── */
+
+const STREAM = [
+  { time: '09:41:02', actor: 'alice@finstack.com', action: 'DATA_EXPORTED', service: 'reporting' },
+  { time: '09:41:05', actor: 'bob@finstack.com',   action: 'LOGIN_FAILED',  service: 'auth' },
+  { time: '09:41:07', actor: 'bob@finstack.com',   action: 'LOGIN_FAILED',  service: 'auth' },
+  { time: '09:41:09', actor: 'bob@finstack.com',   action: 'LOGIN_FAILED',  service: 'auth' },
+  { time: '09:41:12', actor: 'bob@finstack.com',   action: 'LOGIN_FAILED',  service: 'auth' },
+  { time: '09:41:14', actor: 'bob@finstack.com',   action: 'LOGIN_FAILED',  service: 'auth' },
 ];
+
+const ROW_START = 0.9;  // seconds — after the headline has settled
+const ROW_STEP  = 0.45;
+const ALERT_AT  = ROW_START + STREAM.length * ROW_STEP + 0.2;
+
+function StreamCard() {
+  return (
+    <div className="relative mx-auto mt-16 max-w-[780px] rounded-2xl border border-white/10 bg-[#0c0c10]/80 backdrop-blur-xl shadow-[0_30px_80px_rgba(0,0,0,0.6)] text-left reveal-up" style={{ animationDelay: '0.5s' }}>
+      <div className="flex items-center justify-between px-5 h-11 border-b border-white/[0.07]">
+        <span className="font-geist-mono text-[12px] text-zinc-500">audit-events · finstack</span>
+        <span className="flex items-center gap-2 font-geist-mono text-[12px] text-zinc-400">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60 animate-ping" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          </span>
+          live
+        </span>
+      </div>
+
+      <div className="px-5 py-3 font-geist-mono text-[12.5px]">
+        {STREAM.map((e, i) => (
+          <div
+            key={i}
+            className="stream-in grid grid-cols-[72px_1fr_auto] sm:grid-cols-[80px_1fr_140px_80px] items-center gap-3 py-1.5"
+            style={{ animationDelay: `${ROW_START + i * ROW_STEP}s` }}
+          >
+            <span className="text-zinc-600">{e.time}</span>
+            <span className="text-sky-300 truncate">{e.actor}</span>
+            <span className={e.action === 'LOGIN_FAILED' ? 'text-rose-400' : 'text-zinc-300'}>{e.action}</span>
+            <span className="text-zinc-600 hidden sm:block">{e.service}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mx-3 mb-3 flex flex-col gap-2">
+        <div
+          className="stream-in flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3"
+          style={{ animationDelay: `${ALERT_AT}s` }}
+        >
+          <span className="rounded-md bg-rose-500/20 px-2 py-0.5 font-geist-mono text-[11px] font-medium text-rose-300">HIGH</span>
+          <span className="font-geist-mono text-[12.5px] text-white">MULTIPLE_FAILED_LOGINS</span>
+          <span className="text-[13px] text-zinc-400">bob@finstack.com · 5 failures in 9s · webhook sent</span>
+        </div>
+        <div
+          className="stream-in flex items-start gap-3 rounded-xl border border-violet-400/20 bg-violet-500/[0.07] px-4 py-3"
+          style={{ animationDelay: `${ALERT_AT + 0.7}s` }}
+        >
+          <Sparkles className="w-4 h-4 mt-0.5 shrink-0 text-violet-300" aria-hidden="true" />
+          <p className="text-[13.5px] leading-relaxed text-zinc-300">
+            Five failed logins from one external IP in 9 seconds, with no successful login after.
+            Looks like password guessing against bob's account.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── How it works: the real order of the pipeline ─────────────────────── */
 
 const STEPS = [
-  { num: '01', title: 'Connect',     desc: 'Send audit events from any service via a single HTTP POST to the TraceIQ ingestion API.' },
-  { num: '02', title: 'Detect',      desc: 'Rules run automatically on every ingested event. Alerts are created in real-time with severity classification.' },
-  { num: '03', title: 'Investigate', desc: 'AI graphs retrieve, correlate, and reason across your audit history to produce a structured report in seconds.' },
+  { title: 'Send',        text: 'Your services POST each action to the TraceIQ API with an API key. It\'s accepted immediately and processed in the background.' },
+  { title: 'Detect',      text: 'Every event is checked against detection rules as it arrives. A match becomes an alert and fires your webhook.' },
+  { title: 'Investigate', text: 'Open the person\'s timeline, or ask the AI investigator what happened. It reads their real history and writes a report.' },
 ];
 
-const HERO_TAGS = ['Real-time Detection', 'AI Investigation', 'Multi-tenant', 'API-First'];
+/* ── Features ──────────────────────────────────────────────────────────── */
 
-/* ── Sub-components ───────────────────────────────────────────────────── */
-
-const LiveDetectionCard = () => (
-  <div className="border border-border bg-surface p-5 animate-blur-fade-in">
-    {/* Card header */}
-    <div className="flex items-center gap-2.5 mb-4">
-      <p className="kicker flex-1">Live / Detection Engine</p>
-      <span className="relative flex h-1.5 w-1.5 shrink-0">
-        <span className="animate-ping absolute inline-flex h-full w-full bg-sev-high opacity-60" />
-        <span className="relative inline-flex h-1.5 w-1.5 bg-sev-high" />
-      </span>
-    </div>
-
-    <div className="rule mb-4" />
-
-    {/* Incoming event */}
-    <div className="flex flex-col gap-2 mb-4">
-      {[
-        { label: 'ACTOR',   value: 'admin@acme.com',  cls: 'text-code' },
-        { label: 'ACTION',  value: 'DATA_EXPORTED',   cls: 'text-sev-med' },
-        { label: 'SERVICE', value: 'PAYMENTS_SVC',    cls: 'text-primary' },
-        { label: 'RECORDS', value: '5,000',           cls: 'text-primary' },
-      ].map(row => (
-        <div key={row.label} className="flex gap-3 font-mono text-[12px]">
-          <span className="text-muted w-16 shrink-0 tracking-widest">{row.label}</span>
-          <span className={row.cls}>{row.value}</span>
-        </div>
-      ))}
-    </div>
-
-    <div className="rule mb-4" />
-
-    {/* Detection output */}
-    <div className="flex flex-col gap-2.5">
-      <div className="flex items-center gap-2">
-        <span className="w-1.5 h-1.5 bg-sev-high shrink-0" />
-        <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-sev-high">
-          Detection Triggered
-        </span>
-      </div>
-      <p className="font-mono text-[12px] text-primary pl-3.5">BULK_DATA_EXPORT (HIGH)</p>
-
-      <div className="flex items-center gap-2 mt-1">
-        <span className="w-1.5 h-1.5 bg-accent-ai shrink-0" />
-        <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-accent-ai">
-          AI Investigation Available
-        </span>
-      </div>
-      <p className="font-mono text-[11px] text-secondary pl-3.5">
-        LangGraph agent ready to investigate
-      </p>
-    </div>
-  </div>
-);
-
-const AuditLogPreview = () => (
-  <div className="flex flex-col gap-0">
-    {[
-      { time: '09:12', actor: 'admin@acme.com', action: 'DATA_EXPORTED',  svc: 'PAYMENTS', danger: true  },
-      { time: '09:10', actor: 'user@acme.com',  action: 'LOGIN_FAILED',   svc: 'AUTH',     danger: true  },
-      { time: '09:08', actor: 'dev@acme.com',   action: 'CONFIG_CHANGED', svc: 'INFRA',    danger: false },
-      { time: '09:05', actor: 'admin@acme.com', action: 'USER_CREATED',   svc: 'IAM',      danger: false },
-    ].map((r, i) => (
-      <div key={i} className="flex gap-4 items-center py-2.5 border-b border-border last:border-b-0 text-[12px]">
-        <span className="font-mono text-muted w-10 shrink-0">{r.time}</span>
-        <span className="font-mono text-code flex-1 truncate">{r.actor}</span>
-        <span className={cn(
-          'font-mono text-[11px] font-medium px-2 py-0.5 shrink-0',
-          r.danger ? 'bg-sev-high/10 text-sev-high' : 'bg-code/10 text-code'
-        )}>
-          {r.action}
-        </span>
-        <span className="font-mono text-[11px] text-muted shrink-0">{r.svc}</span>
-      </div>
-    ))}
-  </div>
-);
-
-const DetectionsPreview = () => (
-  <div className="flex flex-col gap-0">
-    {[
-      { sev: 'HIGH',   rule: 'MULTIPLE_FAILED_LOGINS', actor: 'user@acme.com',  status: 'OPEN',         dotCls: 'bg-sev-high',  statusCls: 'text-sev-high'           },
-      { sev: 'MEDIUM', rule: 'BULK_DATA_EXPORT',        actor: 'admin@acme.com', status: 'ACKNOWLEDGED', dotCls: 'bg-sev-med',   statusCls: 'text-status-ack'         },
-      { sev: 'LOW',    rule: 'OFF_HOURS_ACCESS',        actor: 'dev@acme.com',   status: 'RESOLVED',     dotCls: 'bg-sev-low',   statusCls: 'text-status-resolved'    },
-    ].map((d, i) => (
-      <div key={i} className="flex items-center gap-3 py-3 border-b border-border last:border-b-0">
-        <span className={cn('w-1.5 h-1.5 shrink-0', d.dotCls)} />
-        <span className="font-mono text-[12px] text-primary flex-1 truncate">{d.rule}</span>
-        <span className="font-mono text-[11px] text-code shrink-0 hidden sm:block">{d.actor}</span>
-        <span className={cn('font-mono text-[10px] uppercase tracking-[0.1em] shrink-0', d.statusCls)}>
-          {d.status}
-        </span>
-      </div>
-    ))}
-  </div>
-);
-
-const AIInvestigationPreview = () => (
-  <div className="flex flex-col gap-4">
-    <div className="border border-border border-l-2 border-l-accent-ai px-4 py-3 font-sans text-[14px] italic text-secondary leading-relaxed">
-      "Why was admin@acme.com flagged last night?"
-    </div>
-    <div className="flex flex-col gap-2">
-      {['Searching detections', 'Retrieving audit timeline', 'Running semantic search', 'Generating report'].map((s, i) => (
-        <div key={i} className="flex items-center gap-2.5 font-mono text-[11px]">
-          <span className="text-status-resolved">✓</span>
-          <span className="text-secondary uppercase tracking-[0.08em]">{s}</span>
-        </div>
-      ))}
-    </div>
-    <div className="border border-border px-4 py-3 flex flex-col gap-2">
-      <p className="text-[13px] text-primary leading-relaxed font-sans">
-        Actor exported 5,000 transaction records outside of normal business hours across 2 services.
-      </p>
-      <div className="flex items-center gap-4 font-mono text-[11px] text-secondary pt-2 border-t border-border">
-        <span><strong className="text-sev-med">3</strong> findings</span>
-        <span className="text-muted">·</span>
-        <span><strong className="text-accent">2</strong> recommendations</span>
-      </div>
-    </div>
-  </div>
-);
-
-const FEATURE_TABS = [
-  { label: 'Audit Log',        preview: <AuditLogPreview /> },
-  { label: 'Detections',       preview: <DetectionsPreview /> },
-  { label: 'AI Investigation', preview: <AIInvestigationPreview /> },
+const FEATURES = [
+  { icon: ScrollText,  title: 'A searchable activity log', text: 'Filter every event by person, action and time range, open any event for full detail, and export what you find to CSV.' },
+  { icon: ShieldAlert, title: 'Detections as it happens',  text: 'Repeated failed logins, unusually large data exports and admin activity at night are flagged the moment they arrive.' },
+  { icon: Webhook,     title: 'Alerts where you work',      text: 'Each detection is posted to your webhook, so it can land in Slack, PagerDuty or your own tooling.' },
+  { icon: Sparkles,    title: 'AI investigations',          text: 'Ask a question about someone\'s behaviour. The agent searches their history and returns findings and next steps.' },
+  { icon: UserSearch,  title: 'Timelines for every person', text: 'See one person\'s activity, the services they touched and what they do most, on a single page.' },
+  { icon: Lock,        title: 'Separate by design',         text: 'Each company\'s data is isolated on every query, and five roles decide who can see and change what.' },
 ];
+
+/* ── Code sample: the real ingestion request ──────────────────────────── */
+
+function CodeCard() {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#0c0c10]/80 overflow-hidden">
+      <div className="flex items-center justify-between px-5 h-11 border-b border-white/[0.07]">
+        <span className="font-geist-mono text-[12px] text-zinc-500">send-event.sh</span>
+        <span className="font-geist-mono text-[12px] text-emerald-400">202 Accepted</span>
+      </div>
+      <pre className="px-5 py-4 overflow-x-auto font-geist-mono text-[12.5px] leading-[1.75] text-zinc-300">
+{`curl -X POST `}<span className="text-sky-300">http://localhost:3000/api/v1/events</span>{` \\
+  -H `}<span className="text-amber-200">"Authorization: Bearer tk_live_…"</span>{` \\
+  -H `}<span className="text-amber-200">"Content-Type: application/json"</span>{` \\
+  -d '{
+    `}<span className="text-violet-300">"actor"</span>{`: `}<span className="text-amber-200">"bob@finstack.com"</span>{`,
+    `}<span className="text-violet-300">"action"</span>{`: `}<span className="text-amber-200">"LOGIN_FAILED"</span>{`,
+    `}<span className="text-violet-300">"source_service"</span>{`: `}<span className="text-amber-200">"AUTH_SERVICE"</span>{`,
+    `}<span className="text-violet-300">"resource_type"</span>{`: `}<span className="text-amber-200">"session"</span>{`,
+    `}<span className="text-violet-300">"resource_id"</span>{`: `}<span className="text-amber-200">"sess_8842"</span>{`
+  }'`}
+      </pre>
+    </div>
+  );
+}
 
 /* ── Page ─────────────────────────────────────────────────────────────── */
 
 export function LandingPage() {
-  const navigate   = useNavigate();
-  const [activeTab, setActiveTab] = useState(0);
+  const navigate = useNavigate();
+  const goSignup = () => navigate('/signup');
+  const goDemo   = () => navigate('/login', { state: { demo: true } });
 
   return (
-    <div className="min-h-screen bg-base text-primary">
+    <div className="min-h-screen bg-[#050507] text-white font-sans scroll-smooth">
 
-      {/* ── Navbar ──────────────────────────────────────────────────── */}
-      <nav className="fixed top-0 left-0 right-0 h-14 flex items-center justify-between px-8 bg-base/90 backdrop-blur-md border-b border-border z-50">
-        <span className="font-heading text-xl font-medium tracking-tight text-primary">
-          Trace<span className="text-accent-ai">IQ</span>
-        </span>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/login')}
-            className="px-4 py-1.5 border border-border font-mono text-[10px] uppercase tracking-[0.15em] text-secondary hover:text-primary hover:border-primary/30 transition-colors rounded-[4px]"
-          >
-            Sign In
-          </button>
-          <button
-            onClick={() => navigate('/signup')}
-            className="px-4 py-1.5 bg-accent text-white font-mono text-[10px] uppercase tracking-[0.15em] rounded-[4px] hover:opacity-90 transition-opacity"
-          >
-            Get Started →
-          </button>
-        </div>
-      </nav>
-
-      {/* ── Hero ────────────────────────────────────────────────────── */}
-      <section className="rules-band border-b border-border pt-14 relative overflow-hidden">
-        {/* Hero ambient glow */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{ background: 'radial-gradient(ellipse 60% 70% at 20% 50%, rgba(163, 113, 247, 0.08) 0%, transparent 65%)' }}
-        />
-        <div className="max-w-[1100px] mx-auto px-6 py-20 lg:py-28 relative z-[1]">
-          <div className="lg:grid lg:grid-cols-12 lg:gap-16 items-center">
-
-            {/* Left */}
-            <div className="lg:col-span-7 mb-12 lg:mb-0">
-              <p className="kicker mb-5">Audit Intelligence Platform</p>
-              <h1 className="text-gradient font-heading font-medium text-[clamp(36px,5vw,58px)] leading-[1.06] tracking-tight mb-5">
-                Every Action.<br />
-                Every Actor.<br />
-                Fully Explained.
-              </h1>
-              <p className="text-[16px] leading-[1.75] text-secondary font-sans max-w-[480px] mb-8">
-                TraceIQ ingests audit events from all your services, detects threats in real-time,
-                and lets an AI agent investigate suspicious actors in seconds — not days.
-              </p>
-              <div className="flex items-center gap-3 flex-wrap mb-8">
-                <button
-                  onClick={() => navigate('/signup')}
-                  className="px-6 py-2.5 bg-accent text-white font-mono text-[11px] uppercase tracking-[0.15em] rounded-[4px] hover:opacity-90 transition-opacity"
-                >
-                  Create Workspace →
-                </button>
-                <button
-                  onClick={() => navigate('/login')}
-                  className="px-6 py-2.5 border border-border font-mono text-[11px] uppercase tracking-[0.15em] text-secondary hover:text-primary hover:border-primary/30 transition-colors rounded-[4px]"
-                >
-                  Sign In
-                </button>
-              </div>
-
-              {/* Tag strip */}
-              <div className="flex items-center flex-wrap border-t border-border pt-6 gap-y-2">
-                {HERO_TAGS.map((tag, i) => (
-                  <span key={tag} className="flex items-center">
-                    {i > 0 && <span className="mx-3 text-border select-none">·</span>}
-                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">{tag}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Right — Live detection card */}
-            <div className="lg:col-span-5">
-              <LiveDetectionCard />
-            </div>
-
+      {/* Nav */}
+      <header className="fixed top-0 inset-x-0 z-50 border-b border-white/[0.06] bg-[#050507]/70 backdrop-blur-xl">
+        <nav className="max-w-[1160px] mx-auto h-16 px-5 flex items-center justify-between">
+          <Logo />
+          <div className="hidden md:flex items-center gap-8 text-[14px] text-zinc-400">
+            <a href="#how" className="text-zinc-400 hover:text-white hover:no-underline transition-colors">How it works</a>
+            <a href="#features" className="text-zinc-400 hover:text-white hover:no-underline transition-colors">Features</a>
+            <a href="#api" className="text-zinc-400 hover:text-white hover:no-underline transition-colors">API</a>
           </div>
-        </div>
-      </section>
-
-      {/* ── Why TraceIQ ─────────────────────────────────────────────── */}
-      <section className="border-b border-border">
-        <div className="max-w-[1100px] mx-auto px-6 py-20">
-          <p className="kicker mb-6">02 / The Problem</p>
-          <div className="rule mb-10" />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-0 md:gap-12">
-            {/* Problems */}
-            <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-sev-high mb-4">
-                What teams are dealing with
-              </p>
-              {PAIN_POINTS.map((p, i) => (
-                <div key={i} className="flex gap-3 py-3.5 border-b border-border last:border-b-0">
-                  <span className="text-sev-high font-mono text-[11px] shrink-0 mt-0.5">✗</span>
-                  <p className="text-[14px] text-secondary leading-relaxed font-sans">{p.problem}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Solutions */}
-            <div className="mt-10 md:mt-0">
-              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-status-resolved mb-4">
-                What TraceIQ provides
-              </p>
-              {PAIN_POINTS.map((p, i) => (
-                <div key={i} className="flex gap-3 py-3.5 border-b border-border last:border-b-0">
-                  <span className="text-status-resolved font-mono text-[11px] shrink-0 mt-0.5">✓</span>
-                  <p className="text-[14px] text-primary leading-relaxed font-sans">{p.solution}</p>
-                </div>
-              ))}
-            </div>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <button onClick={() => navigate('/login')} className={cn('text-[14px] text-zinc-300 hover:text-white transition-colors px-2', focusRing)}>
+              Sign in
+            </button>
+            <button onClick={goSignup} className={cn('h-9 px-4 rounded-full text-[14px] font-medium text-white border border-violet-400/50 hover:bg-violet-500/10 transition', focusRing)}>
+              Get started
+            </button>
           </div>
-        </div>
-      </section>
+        </nav>
+      </header>
 
-      {/* ── How It Works ────────────────────────────────────────────── */}
-      <section className="border-b border-border">
-        <div className="max-w-[1100px] mx-auto px-6 py-20">
-          <p className="kicker mb-6">03 / How It Works</p>
-          <div className="rule mb-12" />
+      {/* Hero */}
+      <section className="relative overflow-hidden pt-36 pb-24 px-5">
+        {/* Glow behind the headline, plus the drifting aurora lower down behind the stream */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[720px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(124,77,255,0.28),transparent_70%)]" />
+        <div className="aurora" aria-hidden="true" />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,transparent_75%,#050507_100%)]" />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-8">
-            {STEPS.map((s, i) => (
-              <div key={i} className="relative">
-                <p className="font-heading text-[72px] font-medium leading-none text-primary/8 mb-4 select-none">
-                  {s.num}
-                </p>
-                <h3 className="font-heading text-2xl font-medium text-primary mb-3">{s.title}</h3>
-                <p className="text-[14px] leading-[1.75] text-secondary font-sans">{s.desc}</p>
-                {i < STEPS.length - 1 && (
-                  <div className="hidden md:block absolute top-8 -right-4 w-8 h-px bg-border" />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Feature Preview ─────────────────────────────────────────── */}
-      <section className="bg-surface border-b border-border">
-        <div className="max-w-[1100px] mx-auto px-6 py-20">
-          <p className="kicker mb-6">04 / See It In Action</p>
-          <div className="rule mb-8" />
-
-          {/* Tab bar */}
-          <div className="flex gap-0 border-b border-border mb-0">
-            {FEATURE_TABS.map((t, i) => (
-              <button
-                key={i}
-                onClick={() => setActiveTab(i)}
-                className={cn(
-                  'px-5 py-3 font-mono text-[10px] uppercase tracking-[0.15em] border-b-2 -mb-px transition-colors',
-                  activeTab === i
-                    ? 'text-primary border-accent-ai'
-                    : 'text-secondary border-transparent hover:text-primary'
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Preview panel */}
-          <div className="border border-t-0 border-border p-6 min-h-[220px]">
-            {FEATURE_TABS[activeTab].preview}
-          </div>
-        </div>
-      </section>
-
-      {/* ── CTA Footer ──────────────────────────────────────────────── */}
-      <section className="rules-band border-b border-border">
-        <div className="max-w-[1100px] mx-auto px-6 py-24 text-center">
-          <p className="kicker mb-8 justify-center flex">05 / Get Started</p>
-          <h2 className="font-heading text-[clamp(28px,4vw,48px)] font-medium text-primary leading-tight mb-4">
-            Ready to see everything?
-          </h2>
-          <p className="text-secondary text-[15px] font-sans mb-10 max-w-[440px] mx-auto leading-relaxed">
-            Create your TraceIQ workspace in seconds and start investigating.
+        <div className="relative max-w-[900px] mx-auto text-center">
+          <p className="reveal-up inline-flex items-center rounded-full border border-violet-400/25 bg-violet-500/10 px-3.5 py-1 text-[13px] text-violet-200">
+            Audit logging with threat detection built in
           </p>
-          <div className="flex items-center gap-3 justify-center flex-wrap">
-            <button
-              onClick={() => navigate('/signup')}
-              className="px-6 py-2.5 bg-accent text-white font-mono text-[11px] uppercase tracking-[0.15em] rounded-[4px] hover:opacity-90 transition-opacity"
-            >
-              Create Workspace →
+
+          <h1 className="reveal-up font-sans mt-6 text-[clamp(40px,7.5vw,78px)] font-extrabold leading-[1.02] tracking-[-0.045em]" style={{ animationDelay: '0.1s' }}>
+            <span className="text-white">Every action, recorded.</span>
+            <br />
+            <span className="bg-[linear-gradient(90deg,#c4b5fd_0%,#8b7cff_45%,#60a5fa_100%)] bg-clip-text text-transparent">
+              Every threat, explained.
+            </span>
+          </h1>
+
+          <p className="reveal-up mx-auto mt-6 max-w-[600px] text-balance text-[18px] leading-relaxed text-zinc-400" style={{ animationDelay: '0.2s' }}>
+            Send audit events from your services. TraceIQ stores them, flags suspicious
+            behaviour the moment it happens, and explains what a person did.
+          </p>
+
+          <div className="reveal-up mt-9 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: '0.3s' }}>
+            <button onClick={goSignup} className={primaryBtn}>
+              Create a workspace <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </button>
-            <button
-              onClick={() => navigate('/login')}
-              className="px-6 py-2.5 border border-border font-mono text-[11px] uppercase tracking-[0.15em] text-secondary hover:text-primary hover:border-primary/30 transition-colors rounded-[4px]"
-            >
-              Sign In
+            <button onClick={goDemo} className={ghostBtn}>
+              Try the demo
             </button>
+          </div>
+
+          <StreamCard />
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how" className="scroll-mt-20 px-5 py-24 border-t border-white/[0.06]">
+        <div className="max-w-[1160px] mx-auto">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-violet-300">How it works</p>
+          <h2 className="font-sans mt-3 max-w-[640px] text-[clamp(30px,4vw,44px)] font-extrabold leading-[1.1] tracking-[-0.03em]">
+            From a single request to a full investigation
+          </h2>
+          <ol className="mt-12 grid gap-4 md:grid-cols-3">
+            {STEPS.map((s, i) => (
+              <li key={s.title} className="relative rounded-2xl border border-white/[0.08] bg-[#0f0f13]/70 p-6">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 font-geist-mono text-[13px] text-zinc-300">
+                  {i + 1}
+                </span>
+                <h3 className="font-sans mt-5 text-[20px] font-bold tracking-tight">{s.title}</h3>
+                <p className="mt-2 text-[15px] leading-relaxed text-zinc-400">{s.text}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="scroll-mt-20 px-5 py-24 border-t border-white/[0.06]">
+        <div className="max-w-[1160px] mx-auto">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-violet-300">Features</p>
+          <h2 className="font-sans mt-3 max-w-[640px] text-[clamp(30px,4vw,44px)] font-extrabold leading-[1.1] tracking-[-0.03em]">
+            Everything you need to answer “who did what?”
+          </h2>
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURES.map(({ icon: Icon, title, text }) => (
+              <div key={title} className="group rounded-2xl border border-white/[0.08] bg-[#0f0f13]/70 p-6 transition-colors hover:border-violet-400/30">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-violet-300 group-hover:text-violet-200">
+                  <Icon className="w-5 h-5" aria-hidden="true" />
+                </span>
+                <h3 className="font-sans mt-5 text-[18px] font-bold tracking-tight">{title}</h3>
+                <p className="mt-2 text-[15px] leading-relaxed text-zinc-400">{text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* API */}
+      <section id="api" className="scroll-mt-20 px-5 py-24 border-t border-white/[0.06]">
+        <div className="max-w-[1160px] mx-auto grid items-center gap-12 lg:grid-cols-2">
+          <div>
+            <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-violet-300">API</p>
+            <h2 className="font-sans mt-3 text-[clamp(30px,4vw,44px)] font-extrabold leading-[1.1] tracking-[-0.03em]">
+              One request to start logging
+            </h2>
+            <p className="mt-5 max-w-[480px] text-[17px] leading-relaxed text-zinc-400">
+              Create a workspace, copy your API key and send events from any language.
+              The integration guide inside the app has ready-to-paste examples for cURL, Node.js and Python.
+            </p>
+            <button onClick={goSignup} className={cn(ghostBtn, 'mt-8')}>
+              Get your API key <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+          <CodeCard />
+        </div>
+      </section>
+
+      {/* Final call to action */}
+      <section className="relative overflow-hidden px-5 py-28 border-t border-white/[0.06] text-center">
+        <div className="aurora opacity-60" aria-hidden="true" />
+        <div className="relative max-w-[720px] mx-auto">
+          <h2 className="font-sans text-[clamp(32px,5vw,52px)] font-extrabold leading-[1.05] tracking-[-0.04em]">
+            See it on your own events
+          </h2>
+          <p className="mt-5 text-[17px] text-zinc-400">
+            Set up a workspace in under a minute, or look around the demo company first.
+          </p>
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+            <button onClick={goSignup} className={cn('inline-flex items-center gap-2 h-11 px-6 rounded-full bg-white text-[15px] font-medium text-black hover:bg-zinc-200 transition', focusRing)}>
+              Create a workspace <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </button>
+            <button onClick={goDemo} className={ghostBtn}>Try the demo</button>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="max-w-[1100px] mx-auto px-6 py-8 flex items-center justify-between">
-        <span className="font-heading text-sm text-muted">TraceIQ</span>
-        <div className="rule--tagged flex-1 mx-8">
-          <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
-            Audit Intelligence Platform
-          </span>
+      <footer className="border-t border-white/[0.06] px-5 py-8">
+        <div className="max-w-[1160px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <Logo />
+          <p className="text-[13px] text-zinc-500">Built with Node.js, PostgreSQL, Redis and LangGraph</p>
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[13px] text-zinc-400 hover:text-white hover:no-underline">
+            Source on GitHub <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
+          </a>
         </div>
       </footer>
-
     </div>
   );
 }

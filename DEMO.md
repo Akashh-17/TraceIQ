@@ -69,7 +69,7 @@ for AI investigation and semantic search. Everything else works without it.
 
 | Login | Password | Use for |
 |---|---|---|
-| `admin@finstack.com` | `password123` | The demo (the "Try Demo Account" button fills this in) |
+| `admin@finstack.com` | `password123` | The demo ("Try the demo" on the landing page, or "Use the demo account" on sign-in, fills this in) |
 | `viewer@finstack.com` | `password123` | Showing role-based access (no Users page, no API key) |
 | `auditor@`, `analyst@finstack.com`, `superadmin@traceiq.io` | `password123` | Other roles |
 

@@ -1,27 +1,27 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { ArrowRight } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { api } from '../../api/axios';
+import { AuthLayout, AuthField, PasswordField, AuthError, authPrimaryBtn, authSecondaryBtn } from '../../components/auth/AuthUI';
 
-const LOGIN_CAPABILITIES = [
-  'Real-time threat detection',
-  'LangGraph AI investigation',
-  'Immutable audit trail',
-  'Multi-tenant isolation',
-];
-
-const inputCls =
-  'w-full bg-input border border-border text-primary text-sm px-3 py-2.5 rounded-[4px] font-sans focus:outline-none focus:border-accent transition-colors placeholder:text-secondary';
+// Seeded demo company (see traceIQ-backend/prisma/seed.ts)
+const DEMO_EMAIL    = 'admin@finstack.com';
+const DEMO_PASSWORD = 'password123';
 
 export function LoginPage() {
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const qc       = useQueryClient();
   const setAuth  = useAuthStore(state => state.setAuth);
+
+  // "Try the demo" on the landing page arrives here with the demo account pre-filled.
+  const cameForDemo = Boolean((location.state as { demo?: boolean } | null)?.demo);
+  const [email, setEmail]       = useState(cameForDemo ? DEMO_EMAIL : '');
+  const [password, setPassword] = useState(cameForDemo ? DEMO_PASSWORD : '');
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,112 +34,48 @@ export function LoginPage() {
       setAuth(data.data.accessToken, data.data.user);
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to sign in');
+      setError(err.response?.data?.message || 'Could not sign in. Check your email and password.');
     } finally {
       setLoading(false);
     }
   };
 
+  const fillDemo = () => {
+    setEmail(DEMO_EMAIL);
+    setPassword(DEMO_PASSWORD);
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-base p-6">
-      <div className="w-full max-w-4xl border border-border bg-surface gridlines md:grid md:grid-cols-5 animate-blur-fade-in overflow-hidden rounded-[4px]">
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Sign in to your TraceIQ workspace"
+      footer={<>New to TraceIQ? <Link to="/signup" className="text-violet-300 hover:text-violet-200">Create a workspace</Link></>}
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {error && <AuthError>{error}</AuthError>}
+        {cameForDemo && !error && (
+          <p className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-3.5 py-2.5 text-[13px] text-violet-200">
+            Demo account filled in. Press Sign in to explore the FinStack workspace.
+          </p>
+        )}
 
-        {/* Left panel */}
-        <div className="hidden md:flex flex-col justify-between p-10 border-r border-border col-span-2">
-          <div>
-            <p className="font-heading text-2xl font-medium tracking-tight text-primary">TraceIQ</p>
-            <div className="rule my-6" />
-            <p className="kicker mb-4">01 / Sign In</p>
-            <p className="text-sm text-secondary font-sans leading-relaxed">
-              Secure access to your audit intelligence workspace. Investigate actors, review detections, and run AI-powered analysis.
-            </p>
-          </div>
+        <AuthField label="Email" type="email" placeholder="you@company.com" autoComplete="email"
+          value={email} onChange={e => setEmail(e.target.value)} required />
+        <PasswordField label="Password" placeholder="Your password" autoComplete="current-password"
+          value={password} onChange={e => setPassword(e.target.value)} required />
 
-          <div className="space-y-2.5">
-            {LOGIN_CAPABILITIES.map((cap) => (
-              <p key={cap} className="font-mono text-[10px] uppercase tracking-[0.18em] text-secondary">
-                {cap}
-              </p>
-            ))}
-          </div>
+        <button type="submit" disabled={loading} className={`${authPrimaryBtn} mt-2`}>
+          {loading ? 'Signing in…' : <>Sign in <ArrowRight className="w-4 h-4" aria-hidden="true" /></>}
+        </button>
 
-          <div className="rule--tagged">
-            <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted">
-              Audit Intelligence Platform
-            </span>
-          </div>
+        <div className="flex items-center gap-3 text-[12px] uppercase tracking-wider text-zinc-600" aria-hidden="true">
+          <span className="h-px flex-1 bg-white/10" /> or <span className="h-px flex-1 bg-white/10" />
         </div>
 
-        {/* Right panel */}
-        <div className="col-span-3 p-8 md:p-10 flex flex-col justify-center bg-surface">
-          <h1 className="text-3xl font-heading font-medium tracking-tight text-primary mb-1">
-            Welcome back
-          </h1>
-          <p className="text-secondary text-sm font-sans mb-8">
-            Enter your credentials to access TraceIQ
-          </p>
-
-          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-            {error && (
-              <div className="bg-sev-high/10 border border-sev-high/20 text-sev-high px-3 py-3 rounded-[4px] text-[13px]">
-                {error}
-              </div>
-            )}
-
-            <div className="flex flex-col gap-1.5">
-              <label className="font-mono text-[11px] uppercase tracking-[0.15em] text-primary/70">
-                Email Address
-              </label>
-              <input
-                type="email"
-                className={inputCls}
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="admin@acme.com"
-                required
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="font-mono text-[11px] uppercase tracking-[0.15em] text-primary/70">
-                Password
-              </label>
-              <input
-                type="password"
-                className={inputCls}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-2 w-full h-10 bg-accent text-white rounded-[4px] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Signing in…' : 'Sign In'}
-            </button>
-
-            <button
-              type="button"
-              className="w-full h-10 bg-transparent border border-border text-secondary rounded-[4px] font-mono text-[11px] uppercase tracking-[0.1em] hover:text-primary hover:border-primary/30 transition-colors"
-              onClick={() => { setEmail('admin@finstack.com'); setPassword('password123'); }}
-            >
-              Try Demo Account
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-[12px] text-muted">
-            No account?{' '}
-            <Link to="/signup" className="text-accent-ai hover:underline">
-              Create a workspace
-            </Link>
-          </p>
-        </div>
-
-      </div>
-    </div>
+        <button type="button" onClick={fillDemo} className={authSecondaryBtn}>
+          Use the demo account
+        </button>
+      </form>
+    </AuthLayout>
   );
 }
