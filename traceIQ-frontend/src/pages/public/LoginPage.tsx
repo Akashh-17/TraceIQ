@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/auth.store';
 import { api } from '../../api/axios';
 
@@ -19,6 +20,7 @@ export function LoginPage() {
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
   const navigate = useNavigate();
+  const qc       = useQueryClient();
   const setAuth  = useAuthStore(state => state.setAuth);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -27,6 +29,8 @@ export function LoginPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/api/v1/auth/login', { email, password });
+      // A previous session may have expired without a logout; never show its cached data.
+      qc.clear();
       setAuth(data.data.accessToken, data.data.user);
       navigate('/dashboard');
     } catch (err: any) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { investigationApi } from '../../api/detections.api';
 import { cn } from '@/lib/utils';
 
@@ -20,9 +20,15 @@ export function InvestigationPanel({ isOpen, actor, onClose }: InvestigationPane
   const [error, setError]     = useState<string | null>(null);
   const [query, setQuery]     = useState('');
 
+  // The actor currently shown. An investigation takes ~10s; if the user picks another
+  // detection meanwhile, the old result must not appear under the new actor's name.
+  const currentActor = useRef(actor);
+
   useEffect(() => {
+    currentActor.current = actor;
     setResult(null);
     setError(null);
+    setLoading(false);
     setQuery(
       actor
         ? `Investigate the recent activity of ${actor} and identify any suspicious behaviour.`
@@ -32,16 +38,19 @@ export function InvestigationPanel({ isOpen, actor, onClose }: InvestigationPane
 
   const handleInvestigate = async () => {
     if (!actor || !query.trim()) return;
+    const requestedFor = actor;
     setLoading(true);
     setError(null);
     setResult(null);
     try {
       const data = await investigationApi.investigate(actor, query.trim());
-      setResult(data);
+      if (currentActor.current === requestedFor) setResult(data);
     } catch (err: any) {
-      setError(err.response?.data?.message ?? 'Investigation failed. Please try again.');
+      if (currentActor.current === requestedFor) {
+        setError(err.response?.data?.message ?? 'Investigation failed. Please try again.');
+      }
     } finally {
-      setLoading(false);
+      if (currentActor.current === requestedFor) setLoading(false);
     }
   };
 

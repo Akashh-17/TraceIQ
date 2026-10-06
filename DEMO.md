@@ -101,7 +101,8 @@ then switch to the demo account, which has data.
    Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/v1/events -Headers @{ Authorization = "Bearer tk_live_finstack_999" } -ContentType "application/json" -Body (@{ actor = "eve@finstack.com"; action = "DATA_EXPORTED"; source_service = "REPORTING_SERVICE"; resource_type = "report"; resource_id = "rpt_live"; metadata = @{ recordsCount = 2000 } } | ConvertTo-Json)
    ```
 
-5. **Actor profile** (1 min). Click `bob.smith@finstack.com`: timeline, services, top actions.
+5. **Actor profile** (1 min). In the Audit Log, click one of bob's events, then click
+   `bob.smith@finstack.com ↗` in the drawer: timeline (with Load more), services, top actions.
 6. **AI Investigate** (1.5 min). On Detections, open AI Investigate for bob and ask
    *"Why did this actor trigger a MULTIPLE_FAILED_LOGINS detection?"* It takes about
    10 seconds. While it runs, explain: the investigator agent calls tools
@@ -121,6 +122,8 @@ add a webhook URL in Settings and click **Test →**.
 | AI says "not configured" | `GOOGLE_API_KEY` missing in `traceIQ-backend/.env`. Restart API and worker after adding it |
 | Events accepted (202) but never appear | The worker isn't running |
 | `EADDRINUSE` on port 3000 | An old API process is still running. Close it or restart the terminal |
+| Frontend says "Port 5173 is already in use" | Another dev server is still running. Close it; the frontend deliberately won't move to another port |
+| CORS error when logging in | Open the app at `http://localhost:5173` and make sure the API (`npm run dev`) is running. Outside development, set `CORS_ORIGIN` in `.env` to the frontend's address |
 | An extra LOW "after hours" alert appears | Events sent as an admin user before 08:00 or after 18:59 trigger that rule. Use non-admin actor names |
 
 ## Explaining the design (likely interview questions)

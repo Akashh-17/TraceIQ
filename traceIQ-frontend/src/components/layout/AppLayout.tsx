@@ -1,9 +1,12 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { OnboardingWizard } from '../onboarding/OnboardingWizard';
+import { ErrorBoundary } from '../shared/ErrorBoundary';
 
 export function AppLayout() {
+  const { pathname } = useLocation();
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-base">
       {/* Ambient glow — purely decorative, behind all content */}
@@ -22,7 +25,10 @@ export function AppLayout() {
       <div className="flex flex-col flex-1 min-w-0 relative z-[1]">
         <Topbar />
         <main className="flex-1 overflow-y-auto p-8 bg-base">
-          <Outlet />
+          {/* key resets the boundary when you navigate, so other pages still work after a crash */}
+          <ErrorBoundary key={pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
       <OnboardingWizard />

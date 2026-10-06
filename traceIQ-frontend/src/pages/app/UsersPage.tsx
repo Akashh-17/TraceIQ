@@ -3,12 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usersApi, apiKeysApi } from '../../api/users.api';
 import { RelativeTime } from '../../components/shared/RelativeTime';
 import { CopyButton } from '../../components/shared/CopyButton';
+import { useAuthStore } from '../../store/auth.store';
 import { cn } from '@/lib/utils';
 
-const ROLES = ['VIEWER', 'ANALYST', 'TENANT_ADMIN'];
+// Roles a tenant admin can assign. SUPER_ADMIN is TraceIQ staff only and shown read-only.
+const ROLES = ['VIEWER', 'ANALYST', 'AUDITOR', 'TENANT_ADMIN'];
 
-const maskKey = (key: string) =>
-  key ? `${key.slice(0, 8)}${'•'.repeat(24)}${key.slice(-6)}` : '—';
+// Keys are stored hashed, so only the prefix is known.
+const maskKey = (prefix: string) => `${prefix}${'•'.repeat(24)}`;
 
 const fieldInputCls =
   'bg-input border border-border text-primary text-[13px] px-3 py-2 rounded-[4px] font-sans focus:outline-none focus:border-accent transition-colors placeholder:text-muted';
@@ -17,15 +19,21 @@ const monoLabelCls = 'font-mono text-[10px] uppercase tracking-[0.15em] text-sec
 
 export function UsersPage() {
   const qc = useQueryClient();
+  const currentUserId = useAuthStore(state => state.user?.id);
 
   const { data: users, isLoading: usersLoading } = useQuery({
     queryKey: ['users'],
     queryFn: usersApi.listUsers,
   });
 
+  const [roleError, setRoleError] = useState<string | null>(null);
   const updateRoleMutation = useMutation({
     mutationFn: ({ id, role }: { id: string; role: string }) => usersApi.updateRole(id, role),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onSuccess: () => {
+      setRoleError(null);
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (err: any) => setRoleError(err.response?.data?.message || 'Failed to update role.'),
   });
 
   const [newEmail, setNewEmail]       = useState('');
@@ -108,14 +116,19 @@ export function UsersPage() {
                   <tr key={u.id} className="border-b border-border last:border-b-0 hover:bg-elevated/30 transition-colors">
                     <td className="py-3.5 pr-8 font-mono text-[13px] text-code">{u.email}</td>
                     <td className="py-3.5 pr-8">
-                      <select
-                        className="bg-input border border-border text-primary text-[11px] px-2 py-1.5 rounded-[4px] font-mono uppercase tracking-[0.08em] focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
-                        value={u.role}
-                        onChange={e => updateRoleMutation.mutate({ id: u.id, role: e.target.value })}
-                        disabled={updateRoleMutation.isPending}
-                      >
-                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
+                      {u.role === 'SUPER_ADMIN' ? (
+                        <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted">SUPER_ADMIN</span>
+                      ) : (
+                        <select
+                          className="bg-input border border-border text-primary text-[11px] px-2 py-1.5 rounded-[4px] font-mono uppercase tracking-[0.08em] focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+                          value={u.role}
+                          onChange={e => updateRoleMutation.mutate({ id: u.id, role: e.target.value })}
+                          disabled={updateRoleMutation.isPending || u.id === currentUserId}
+                          title={u.id === currentUserId ? "You can't change your own role" : undefined}
+                        >
+                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      )}
                     </td>
                     <td className="py-3.5 font-mono text-[12px] text-secondary">
                       <RelativeTime date={u.createdAt} />
@@ -126,6 +139,10 @@ export function UsersPage() {
             </table>
           )}
         </div>
+
+        {roleError && (
+          <p className="py-2.5 font-mono text-[12px] text-sev-high">{roleError}</p>
+        )}
 
         {/* Create user form */}
         <div className="flex flex-wrap items-end gap-4 py-5 border-t border-border mt-0">
@@ -238,7 +255,7 @@ export function UsersPage() {
                   </span>
                 </div>
                 <span className="font-mono text-[12px] text-primary bg-input border border-border px-2 py-1 rounded-[4px] tracking-wide">
-                  {maskKey(k.keyPrefix || k.id)}
+                  {maskKey(k.keyPrefix)}
                 </span>
               </div>
               <span className="font-mono text-[11px] text-muted shrink-0">

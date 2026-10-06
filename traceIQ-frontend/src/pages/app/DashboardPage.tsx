@@ -87,7 +87,7 @@ export function DashboardPage() {
             value={failedLogins.toLocaleString()}
             trend={failedLogins > 0 ? `+${failedLogins}` : undefined}
           />
-          <KpiCard title="Active Actors"       value={stats?.topActors?.length ?? 0} />
+          <KpiCard title="Unique Actors"       value={(stats?.uniqueActors ?? 0).toLocaleString()} />
         </div>
 
         {/* Charts section */}

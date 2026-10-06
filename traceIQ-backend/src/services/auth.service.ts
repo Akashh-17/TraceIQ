@@ -22,14 +22,14 @@ class AuthService {
   /**
    * Registers a new user.
    */
-  async register(data: RegisterUserDto) {
+  async register(data: RegisterUserDto, role: 'VIEWER' | 'ANALYST' | 'AUDITOR' | 'TENANT_ADMIN' = 'VIEWER') {
     const existingUser = await userRepository.findByEmail(data.email);
     if (existingUser) {
       throw new AppError('Email already in use', 400);
     }
 
     const passwordHash = await hashPassword(data.password);
-    const newUser = await userRepository.create(data.email, passwordHash, data.tenantId);
+    const newUser = await userRepository.createWithRole(data.email, passwordHash, data.tenantId, role);
 
     return {
       id: newUser.id,

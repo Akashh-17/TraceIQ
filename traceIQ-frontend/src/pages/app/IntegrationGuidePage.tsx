@@ -105,8 +105,8 @@ export function IntegrationGuidePage() {
     },
   });
 
-  const keyPrefix: string = keyData?.[0]?.keyPrefix ?? '—';
-  const displayKey = liveKey ?? keyPrefix;
+  // Keys are stored hashed, so only the prefix is known; the rest is masked.
+  const keyPrefix: string = keyData?.[0]?.keyPrefix ? `${keyData[0].keyPrefix}${'•'.repeat(24)}` : '—';
   const snippetKey = liveKey ?? 'YOUR_API_KEY';
   const snippets   = buildSnippets(snippetKey, BASE_URL);
 
@@ -144,7 +144,7 @@ export function IntegrationGuidePage() {
                   {keyVisible ? 'Hide' : 'Reveal'}
                 </button>
               )}
-              <CopyButton text={displayKey} />
+              {liveKey && <CopyButton text={liveKey} />}
             </div>
 
             <div className="flex items-center gap-3">
@@ -224,7 +224,7 @@ export function IntegrationGuidePage() {
         {!liveKey && (
           <p className="mt-2 font-mono text-[11px] text-muted">
             Replace <code className="text-secondary">YOUR_API_KEY</code> with your key
-            {isAdmin ? ', or roll a new one above to auto-populate these examples' : ' — ask your admin to find it in Settings'}.
+            {isAdmin ? ', or roll a new one above to auto-populate these examples' : ' — ask your workspace admin for it'}.
           </p>
         )}
       </div>

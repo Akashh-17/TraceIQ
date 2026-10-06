@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { jwtAuthMiddleware } from '../middlewares/jwtAuth.middleware';
+import { requirePermission } from '../middlewares/rbac.middleware';
+import { Permission } from '../types/rbac.types';
 import rateLimit from 'express-rate-limit';
 
 const router = Router();
@@ -9,6 +11,8 @@ const router = Router();
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
+  // Only failed attempts count — a user logging in and out normally should never be locked out.
+  skipSuccessfulRequests: true,
   message: { success: false, message: 'Too many login attempts, please try again after 15 minutes' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -27,7 +31,7 @@ const signupLimiter = rateLimit({
 router.post('/signup', signupLimiter, authController.signup);
 
 // Endpoint for adding a user to an existing tenant — requires an authenticated admin
-router.post('/register', jwtAuthMiddleware, authController.register);
+router.post('/register', jwtAuthMiddleware, requirePermission(Permission.MANAGE_USERS), authController.register);
 
 // POST /api/v1/auth/login
 // Public route to authenticate a user

@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/auth.store';
 import { api } from '../../api/axios';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -7,9 +8,10 @@ const PAGE_LABELS: { prefix: string; label: string }[] = [
   { prefix: '/events',         label: '02 / Audit Log'       },
   { prefix: '/detections',     label: '03 / Detections'      },
   { prefix: '/investigations', label: '04 / Investigations'  },
-  { prefix: '/actors',         label: '04 / Actor Profile'   },
-  { prefix: '/users',          label: '05 / Users & Access'  },
-  { prefix: '/settings',       label: '06 / Settings'        },
+  { prefix: '/actors',         label: 'Actor Profile'        },
+  { prefix: '/integration',    label: '05 / Integration'     },
+  { prefix: '/users',          label: '06 / Users & Access'  },
+  { prefix: '/settings',       label: '07 / Settings'        },
 ];
 
 function getPageLabel(pathname: string): string {
@@ -21,6 +23,7 @@ export function Topbar() {
   const logout   = useAuthStore(state => state.logout);
   const user     = useAuthStore(state => state.user);
   const navigate = useNavigate();
+  const qc       = useQueryClient();
   const { pathname } = useLocation();
 
   const handleLogout = async () => {
@@ -30,6 +33,8 @@ export function Topbar() {
       // ignore
     }
     logout();
+    // Drop cached tenant data so the next person to log in never sees it.
+    qc.clear();
     navigate('/login');
   };
 

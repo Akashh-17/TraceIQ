@@ -1,7 +1,7 @@
 import express, { Application } from "express";
 import helmet from "helmet";
 import cors from "cors";
-import { env } from "./config/env";
+import { env, isDev } from "./config/env";
 import { logger } from "./config/logger";
 import { prisma } from "./config/prisma";
 import healthRouter from "./routes/health";
@@ -22,8 +22,17 @@ const app: Application = express();
 // Secure HTTP headers
 app.use(helmet());
 
+// CORS_ORIGIN may list several origins, comma-separated.
+const allowedOrigins = env.corsOrigin.split(",").map(o => o.trim());
+const isLocalOrigin = (origin: string) => /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
 app.use(cors({
-  origin: env.corsOrigin,
+  origin: (origin, callback) => {
+    // No Origin header = not a browser request (curl, services ingesting events), so CORS doesn't apply.
+    // In development any local port is accepted, so the frontend on another port doesn't break login.
+    const allowed = !origin || allowedOrigins.includes(origin) || (isDev && isLocalOrigin(origin));
+    callback(null, allowed);
+  },
   credentials: true,
 }));
 

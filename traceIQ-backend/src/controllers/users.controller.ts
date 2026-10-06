@@ -6,9 +6,15 @@ import { AppError } from '../middlewares/errorHandler';
 import { prisma } from '../config/prisma';
 import { z } from 'zod/v4';
 
+// Roles a tenant admin may hand out. SUPER_ADMIN is reserved for TraceIQ staff —
+// allowing it here would let any tenant admin escalate to platform-wide access.
+const ASSIGNABLE_ROLES = ['VIEWER', 'ANALYST', 'AUDITOR', 'TENANT_ADMIN'] as const;
+
 const UpdateRoleSchema = z.object({
-  role: z.enum(['VIEWER', 'ANALYST', 'AUDITOR', 'TENANT_ADMIN', 'SUPER_ADMIN']),
+  role: z.enum(ASSIGNABLE_ROLES),
 });
+
+const NewUserRoleSchema = z.enum(ASSIGNABLE_ROLES).default('VIEWER');
 
 export class UsersController {
   
@@ -34,14 +40,16 @@ export class UsersController {
       // We override the tenantId in the body to ensure they only create users for their own tenant
       const payload = { ...req.body, tenantId };
       const result = RegisterUserSchema.safeParse(payload);
+      const roleResult = NewUserRoleSchema.safeParse(req.body?.role);
 
-      if (!result.success) {
-        res.status(400).json({ success: false, message: 'Validation failed', errors: result.error.issues });
+      if (!result.success || !roleResult.success) {
+        const errors = [...(result.error?.issues ?? []), ...(roleResult.error?.issues ?? [])];
+        res.status(400).json({ success: false, message: 'Validation failed', errors });
         return;
       }
 
       // We reuse authService.register to handle password hashing and creation
-      const user = await authService.register(result.data);
+      const user = await authService.register(result.data, roleResult.data);
       res.status(201).json({ success: true, data: user });
     } catch (err) {
       next(err);
@@ -77,6 +85,18 @@ export class UsersController {
 
       if (!result.success) {
         res.status(400).json({ success: false, message: 'Validation failed', errors: result.error.issues });
+        return;
+      }
+
+      // An admin demoting themselves could leave the tenant with no admin at all.
+      if (id === req.user?.userId) {
+        res.status(400).json({ success: false, message: 'You cannot change your own role.' });
+        return;
+      }
+
+      const target = await prisma.user.findFirst({ where: { id, tenantId }, select: { role: true } });
+      if (target?.role === 'SUPER_ADMIN') {
+        res.status(403).json({ success: false, message: 'Super admin roles cannot be changed from a tenant.' });
         return;
       }
 

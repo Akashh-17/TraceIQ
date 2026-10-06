@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/auth.store';
 import { api } from '../../api/axios';
 
@@ -21,6 +22,7 @@ export function SignupPage() {
   const [loading, setLoading]         = useState(false);
   const [apiKey, setApiKey]           = useState<string | null>(null);
   const navigate = useNavigate();
+  const qc       = useQueryClient();
   const setAuth  = useAuthStore(state => state.setAuth);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -29,6 +31,7 @@ export function SignupPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/api/v1/auth/signup', { companyName, email, password });
+      qc.clear();
       setAuth(data.data.accessToken, data.data.user);
       setApiKey(data.data.tenant.apiKey);
     } catch (err: any) {

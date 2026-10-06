@@ -21,6 +21,8 @@ const ABOUT_ROWS = [
 export function SettingsPage() {
   const qc = useQueryClient();
   const user = useAuthStore(state => state.user);
+  // Webhook settings are admin-only on the API, so non-admins don't see the section.
+  const isAdmin = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN';
 
   // ── Password change state ────────────────────────────────────────
   const [currentPassword, setCurrentPassword]   = useState('');
@@ -36,6 +38,7 @@ export function SettingsPage() {
   const { data: webhookConfig } = useQuery({
     queryKey: ['webhookConfig'],
     queryFn: webhookApi.getConfig,
+    enabled: isAdmin,
   });
 
   const saveMutation = useMutation({
@@ -168,6 +171,7 @@ export function SettingsPage() {
       </div>
 
       {/* 03 / Webhook Notifications */}
+      {isAdmin && (
       <div>
         <p className="kicker mb-4">03 / Webhook Notifications</p>
         <div className="rule mb-6" />
@@ -227,10 +231,11 @@ export function SettingsPage() {
           </p>
         )}
       </div>
+      )}
 
       {/* 04 / About */}
       <div>
-        <p className="kicker mb-5">04 / About</p>
+        <p className="kicker mb-5">{isAdmin ? '04' : '03'} / About</p>
         <div className="rule mb-0" />
 
         {ABOUT_ROWS.map(row => (

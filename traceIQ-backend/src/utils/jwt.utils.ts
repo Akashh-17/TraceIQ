@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 import { env } from '../config/env';
 import { Role } from '@prisma/client';
 import { Permission } from './../types/rbac.types';
@@ -30,6 +31,9 @@ export const generateAccessToken = (payload: JwtPayload): string => {
 export const generateRefreshToken = (userId: string): string => {
   return jwt.sign({ userId }, env.refreshTokenSecret, {
     expiresIn: '30d',
+    // Unique ID per token. Without it, two logins by the same user in the same second
+    // produce identical tokens and the second fails the unique hashedToken constraint.
+    jwtid: randomUUID(),
   });
 };
 

@@ -181,15 +181,15 @@ export function DetectionsPage() {
             <ul className="flex flex-col gap-2 list-none pl-0">
               <li className="font-mono text-[12px] text-secondary">
                 <strong className="text-sev-high">MULTIPLE_FAILED_LOGINS</strong>
-                {' (HIGH) — ≥5 failed logins within 5 mins'}
+                {' (HIGH) — 5+ failed logins by one actor within 10 mins'}
               </li>
               <li className="font-mono text-[12px] text-secondary">
                 <strong className="text-sev-med">BULK_DATA_EXPORT</strong>
-                {' (MEDIUM) — Large payload size for export actions'}
+                {' (MEDIUM) — A data export of more than 1,000 records'}
               </li>
               <li className="font-mono text-[12px] text-secondary">
-                <strong className="text-sev-low">OFF_HOURS_ACCESS</strong>
-                {' (LOW) — Activity outside standard 9–5 local time'}
+                <strong className="text-sev-low">AFTER_HOURS_ADMIN_ACTIVITY</strong>
+                {' (LOW) — Admin activity before 08:00 or after 18:59'}
               </li>
             </ul>
           </div>

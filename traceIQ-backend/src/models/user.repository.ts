@@ -21,21 +21,8 @@ class UserRepository {
   }
 
   /**
-   * Creates a new user in the database with the default VIEWER role.
-   */
-  async create(email: string, passwordHash: string, tenantId: string): Promise<User> {
-    return prisma.user.create({
-      data: {
-        email,
-        password: passwordHash,
-        tenantId,
-      },
-    });
-  }
-
-  /**
    * Creates a new user with an explicit role.
-   * Used during tenant signup to create the first TENANT_ADMIN.
+   * Used for tenant signup (first TENANT_ADMIN) and when admins add team members.
    */
   async createWithRole(email: string, passwordHash: string, tenantId: string, role: 'TENANT_ADMIN' | 'SUPER_ADMIN' | 'AUDITOR' | 'ANALYST' | 'VIEWER'): Promise<User> {
     return prisma.user.create({

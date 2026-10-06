@@ -19,8 +19,9 @@ export class ApiKeysController {
         return;
       }
 
-      // Show only a masked prefix — the real key is stored hashed
-      const keyPrefix = `tk_live_...${tenant.apiKey.substring(0, 8)}`;
+      // Keys are stored as SHA-256 hashes, so only the fixed prefix can be shown.
+      // (Showing characters of the hash would look like part of the key but never match it.)
+      const keyPrefix = 'tk_live_';
 
       const keys = [
         {
@@ -52,7 +53,7 @@ export class ApiKeysController {
         data: { apiKey: hashedKey },
       });
 
-      res.status(200).json({ success: true, message: 'API key rolled successfully', plainKey: newRawKey });
+      res.status(200).json({ success: true, message: 'API key rolled successfully', data: { plainKey: newRawKey } });
     } catch (err) {
       next(err);
     }

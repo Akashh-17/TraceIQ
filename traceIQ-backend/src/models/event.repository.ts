@@ -203,11 +203,12 @@ export class EventRepository {
     topActors:         Array<{ actor: string; count: number }>;
     topActions:        Array<{ action: string; count: number }>;
     failedLoginsToday: number;
+    uniqueActors:      number;
   }> {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const [totalEvents, eventsToday, topActorsRaw, topActionsRaw, failedLoginsToday] =
+    const [totalEvents, eventsToday, topActorsRaw, topActionsRaw, failedLoginsToday, distinctActors] =
       await Promise.all([
         prisma.auditEvent.count({ where: { tenantId } }),
 
@@ -238,6 +239,12 @@ export class EventRepository {
             createdAt: { gte: todayStart },
           },
         }),
+
+        prisma.auditEvent.findMany({
+          where:    { tenantId },
+          distinct: ['actor'],
+          select:   { actor: true },
+        }),
       ]);
 
     return {
@@ -246,6 +253,7 @@ export class EventRepository {
       topActors:  topActorsRaw.map(r => ({ actor: r.actor, count: r._count.actor })),
       topActions: topActionsRaw.map(r => ({ action: r.action, count: r._count.action })),
       failedLoginsToday,
+      uniqueActors: distinctActors.length,
     };
   }
 
